@@ -117,6 +117,12 @@ class TimelapseLogic:
         if not ev_values: return None, None
         return min(ev_values), max(ev_values)
 
+    def get_date_range(self) -> Tuple[Optional[str], Optional[str]]:
+        """Restituisce la data minima e massima (formato YYYY-MM-DD) rilevata nella cache."""
+        dates = [v["date"].split(" ")[0] for v in self.cache.values() if v.get("date")]
+        if not dates: return None, None
+        return min(dates), max(dates)
+
     def filter_images(self, 
                       start_date: datetime, end_date: datetime,
                       start_time: str, end_time: str,

@@ -55,41 +55,48 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         self.entry_end_time.insert(0, "18:00")
         self.entry_end_time.pack(pady=2, fill="x", padx=10)
 
-        # Ripristino Checkbox Giorni
+        # Ripristino Checkbox Giorni (Disposizione in linea)
         ctk.CTkLabel(left_panel, text="Giorni della Settimana", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 0))
         self.days_vars = []
         days_names = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
         days_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
-        days_frame.pack(pady=5)
-        for i, day in enumerate(days_names):
-            var = ctk.IntVar(value=1 if i < 5 else 0) # Preimposta Lun-Ven
-            cb = ctk.CTkCheckBox(days_frame, text=day, variable=var, width=50, font=ctk.CTkFont(size=10))
-            cb.grid(row=i//3, column=i%3, padx=2, pady=2)
-            self.days_vars.append(var)
+        days_frame.pack(pady=5, fill="x")
+        
+        # Usiamo grid con pesi per distribuirli in modo flessibile su una riga
+        for i in range(len(days_names)):
+            days_frame.grid_columnconfigure(i, weight=1)
 
-        self.progress_label = ctk.CTkLabel(left_panel, text="Pronto")
-        self.progress_label.pack(pady=(10,0))
-        self.progress_bar = ctk.CTkProgressBar(left_panel)
-        self.progress_bar.set(0)
-        self.progress_bar.pack(pady=10, fill="x", padx=10)
+        for i, day in enumerate(days_names):
+            var = ctk.IntVar(value=1 if i < 5 else 0)
+            cb = ctk.CTkCheckBox(days_frame, text=day, variable=var, width=40, font=ctk.CTkFont(size=9), checkbox_width=18, checkbox_height=18)
+            cb.grid(row=0, column=i, padx=1, pady=2)
+            self.days_vars.append(var)
 
         # --- SEZIONE EV100 ---
         ctk.CTkLabel(left_panel, text="Filtro Esposizione (EV100)", font=ctk.CTkFont(weight="bold")).pack(pady=(15, 0))
         self.lbl_ev_detected = ctk.CTkLabel(left_panel, text="Range rilevato: --", font=ctk.CTkFont(size=11, slant="italic"))
         self.lbl_ev_detected.pack()
 
+        # Frame EV centrato
         ev_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
-        ev_frame.pack(pady=5, fill="x", padx=10)
+        ev_frame.pack(pady=5) # Rimosso fill="x" per permettere il centraggio automatico di pack
         
-        self.entry_min_ev = ctk.CTkEntry(ev_frame, placeholder_text="Min EV", width=70)
+        self.entry_min_ev = ctk.CTkEntry(ev_frame, placeholder_text="Min", width=60)
         self.entry_min_ev.insert(0, "-20.0")
-        self.entry_min_ev.grid(row=0, column=0, padx=5)
+        self.entry_min_ev.pack(side="left", padx=5)
         
-        ctk.CTkLabel(ev_frame, text="to").grid(row=0, column=1)
+        ctk.CTkLabel(ev_frame, text="to").pack(side="left", padx=2)
         
-        self.entry_max_ev = ctk.CTkEntry(ev_frame, placeholder_text="Max EV", width=70)
+        self.entry_max_ev = ctk.CTkEntry(ev_frame, placeholder_text="Max", width=60)
         self.entry_max_ev.insert(0, "20.0")
-        self.entry_max_ev.grid(row=0, column=2, padx=5)
+        self.entry_max_ev.pack(side="left", padx=5)
+
+        # Progress Section (Spostata verso il basso)
+        self.progress_label = ctk.CTkLabel(left_panel, text="Pronto")
+        self.progress_label.pack(side="bottom", pady=(5, 0))
+        self.progress_bar = ctk.CTkProgressBar(left_panel)
+        self.progress_bar.set(0)
+        self.progress_bar.pack(side="bottom", pady=10, fill="x", padx=10)
 
         # Colonna Destra
         right_panel = ctk.CTkFrame(self)
@@ -98,14 +105,14 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         self.log_textbox = ctk.CTkTextbox(right_panel)
         self.log_textbox.pack(pady=10, padx=10, fill="both", expand=True)
 
-        self.lbl_count = ctk.CTkLabel(right_panel, text="Foto filtrate: 0 / 0")
-        self.lbl_count.pack(pady=5)
+        self.btn_copy = ctk.CTkButton(right_panel, text="Copia Foto Filtrate", command=self.start_copy, state="disabled", height=50)
+        self.btn_copy.pack(side="bottom", pady=10, fill="x", padx=20)
 
         self.btn_apply = ctk.CTkButton(right_panel, text="Applica Filtri", command=self.apply_filters, fg_color="green")
-        self.btn_apply.pack(pady=5, fill="x", padx=20)
+        self.btn_apply.pack(side="bottom", pady=5, fill="x", padx=20)
 
-        self.btn_copy = ctk.CTkButton(right_panel, text="Copia Foto Filtrate", command=self.start_copy, state="disabled")
-        self.btn_copy.pack(pady=10, fill="x", padx=20)
+        self.lbl_count = ctk.CTkLabel(right_panel, text="Foto filtrate: 0 / 0", font=ctk.CTkFont(size=14, weight="bold"))
+        self.lbl_count.pack(side="bottom", pady=5)
 
     def select_source(self):
         path = filedialog.askdirectory()
@@ -128,20 +135,29 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         
         total = self.logic.scan_directory(update_ui)
         
-        # Dopo la scansione, recuperiamo il range EV per aiutare l'utente
+        # Dopo la scansione, recuperiamo il range EV e il range di date
         min_ev, max_ev = self.logic.get_ev_range()
+        min_date, max_date = self.logic.get_date_range()
         
         def finalize_ui():
             self.lbl_count.configure(text=f"Foto filtrate: 0 / {total}")
+            
+            # Imposta Range EV
             if min_ev is not None:
                 self.lbl_ev_detected.configure(text=f"Range rilevato: {min_ev} - {max_ev}")
-                # Opzionale: pre-compila con i valori rilevati per comodità
                 self.entry_min_ev.delete(0, "end")
                 self.entry_min_ev.insert(0, str(min_ev))
                 self.entry_max_ev.delete(0, "end")
                 self.entry_max_ev.insert(0, str(max_ev))
             else:
                 self.lbl_ev_detected.configure(text="Nessun dato EV trovato")
+
+            # Imposta Range Date automaticamente
+            if min_date and max_date:
+                self.entry_start_date.delete(0, "end")
+                self.entry_start_date.insert(0, min_date)
+                self.entry_end_date.delete(0, "end")
+                self.entry_end_date.insert(0, max_date)
 
         self.after(0, finalize_ui)
 
