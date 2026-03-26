@@ -1,9 +1,10 @@
 import os
 import json
 import shutil
+import piexif
 from datetime import datetime
 from typing import Dict, List, Tuple, Callable, Optional
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from PIL.ExifTags import TAGS
 
 class TimelapseLogic:
@@ -16,7 +17,6 @@ class TimelapseLogic:
         self.cache: Dict[str, str] = self._load_cache()
 
     def _load_cache(self) -> Dict[str, str]:
-        """Carica la cache esistente dal file JSON."""
         if os.path.exists(self.cache_path):
             try:
                 with open(self.cache_path, 'r', encoding='utf-8') as f:
@@ -26,12 +26,10 @@ class TimelapseLogic:
         return {}
 
     def _save_cache(self):
-        """Salva la cache corrente nel file JSON."""
         with open(self.cache_path, 'w', encoding='utf-8') as f:
             json.dump(self.cache, f, indent=4)
 
     def get_exif_date(self, filepath: str) -> Optional[datetime]:
-        """Estrae la data di scatto dai metadati EXIF o dalla data di modifica."""
         try:
             img = Image.open(filepath)
             exif_data = img._getexif()
@@ -43,15 +41,10 @@ class TimelapseLogic:
         except Exception:
             pass
         
-        # Fallback alla data di modifica del file
         mtime = os.path.getmtime(filepath)
         return datetime.fromtimestamp(mtime)
 
     def scan_directory(self, progress_callback: Callable[[int, int], None]) -> int:
-        """
-        Scansiona la directory sorgente per nuove immagini.
-        Aggiorna la cache in modo incrementale.
-        """
         files = [f for f in os.listdir(self.source_dir) 
                  if os.path.splitext(f)[1].lower() in self.IMAGE_EXTENSIONS]
         total_files = len(files)
@@ -65,72 +58,107 @@ class TimelapseLogic:
                     self.cache[filename] = dt.strftime('%Y-%m-%d %H:%M:%S')
                     new_entries += 1
             
-            # Notifica progresso ogni 10 file per non sovraccaricare la UI
             if i % 10 == 0 or i == total_files - 1:
                 progress_callback(i + 1, total_files)
 
         if new_entries > 0:
             self._save_cache()
-        
         return total_files
 
     def filter_images(self, 
                       start_date: datetime, end_date: datetime,
                       start_time: str, end_time: str,
                       allowed_days: List[int]) -> List[Tuple[str, datetime]]:
-        """
-        Filtra le immagini basandosi sui criteri forniti.
-        allowed_days: List[int] dove 0=Lunedì, 6=Domenica.
-        """
         filtered_list = []
-        
-        # Parsing orari (formato HH:MM)
         st_h, st_m = map(int, start_time.split(':'))
         et_h, et_m = map(int, end_time.split(':'))
 
         for filename, dt_str in self.cache.items():
             dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
-            
-            # Filtro Data
             if not (start_date.date() <= dt.date() <= end_date.date()):
                 continue
-            
-            # Filtro Giorno della settimana
             if dt.weekday() not in allowed_days:
                 continue
-                
-            # Filtro Orario
             current_time_minutes = dt.hour * 60 + dt.minute
             start_minutes = st_h * 60 + st_m
             end_minutes = et_h * 60 + et_m
-            
             if not (start_minutes <= current_time_minutes <= end_minutes):
                 continue
-
             filtered_list.append((filename, dt))
             
-        # Ordina per data per sicurezza
         filtered_list.sort(key=lambda x: x[1])
         return filtered_list
 
-    def copy_files(self, 
-                   files_to_copy: List[str], 
-                   dest_dir: str, 
-                   progress_callback: Callable[[int, int], None]):
-        """Copia i file filtrati nella cartella di destinazione."""
+    def copy_files(self, files_to_copy: List[str], dest_dir: str, progress_callback: Callable[[int, int], None]):
         if not os.path.exists(dest_dir):
             os.makedirs(dest_dir)
-            
         total = len(files_to_copy)
         for i, filename in enumerate(files_to_copy):
             src = os.path.join(self.source_dir, filename)
             dst = os.path.join(dest_dir, filename)
-            
-            # Evita sovrascritture se il file esiste già e ha stessa dimensione
-            if os.path.exists(dst) and os.path.getsize(src) == os.path.getsize(dst):
-                pass
-            else:
+            if not (os.path.exists(dst) and os.path.getsize(src) == os.path.getsize(dst)):
                 shutil.copy2(src, dst)
-                
             if i % 5 == 0 or i == total - 1:
                 progress_callback(i + 1, total)
+
+class WatermarkLogic:
+    @staticmethod
+    def add_date_label(image_path: str, output_path: str):
+        """Aggiunge il watermark EXIF alla singola immagine."""
+        try:
+            with Image.open(image_path) as img:
+                # Caricamento EXIF con piexif per estrarre la data precisa
+                exif_data_raw = img.info.get("exif")
+                if not exif_data_raw:
+                    # Se mancano i raw exif, non possiamo procedere come richiesto dallo script
+                    return False
+                
+                exif_dict = piexif.load(exif_data_raw)
+                date_raw = exif_dict.get("Exif", {}).get(piexif.ExifIFD.DateTimeOriginal)
+
+                if date_raw:
+                    date_str = date_raw.decode("utf-8")
+                    date_part, time_part = date_str.split(" ")
+                    formatted_date = date_part.replace(":", "/") + "\n" + time_part
+                    
+                    # Logica di disegno (SPOSTATA ALL'INTERNO DEL CONTEXT MANAGER)
+                    draw = ImageDraw.Draw(img)
+                    img_width, img_height = img.size
+                    
+                    # Coordinata dinamica basata sulla dimensione immagine se possibile,
+                    # altrimenti usiamo quelle fornite nello script originale (adatte a risoluzioni alte)
+                    x, y = 3900, 3200
+                    
+                    # Font handling - Cerchiamo di usare un font caricabile o default
+                    try:
+                        # In alcune versioni di Pillow load_default non accetta size
+                        font = ImageFont.load_default(size=200)
+                    except TypeError:
+                        font = ImageFont.load_default()
+
+                    draw.text((x, y), formatted_date, font=font, fill="red")
+                    
+                    # Salvataggio preservando i metadati EXIF originali
+                    img.save(output_path, "jpeg", exif=exif_data_raw, quality=95)
+                    return True
+        except Exception as e:
+            print(f"Errore nel processare {image_path}: {e}")
+            return False
+        return False
+
+    def process_directory(self, input_dir: str, output_dir: str, progress_callback: Callable[[int, int, str], None]):
+        """Cicla tutti i file JPG della cartella di input."""
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.jpg', '.jpeg'))]
+        total = len(files)
+        
+        for i, filename in enumerate(files):
+            input_path = os.path.join(input_dir, filename)
+            output_path = os.path.join(output_dir, filename)
+            
+            success = self.add_date_label(input_path, output_path)
+            
+            status_msg = f"Processata {filename}" if success else f"Errore su {filename} (Nessun EXIF)"
+            progress_callback(i + 1, total, status_msg)
