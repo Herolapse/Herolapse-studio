@@ -73,6 +73,24 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=10, fill="x", padx=10)
 
+        # --- SEZIONE EV100 ---
+        ctk.CTkLabel(left_panel, text="Filtro Esposizione (EV100)", font=ctk.CTkFont(weight="bold")).pack(pady=(15, 0))
+        self.lbl_ev_detected = ctk.CTkLabel(left_panel, text="Range rilevato: --", font=ctk.CTkFont(size=11, slant="italic"))
+        self.lbl_ev_detected.pack()
+
+        ev_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
+        ev_frame.pack(pady=5, fill="x", padx=10)
+        
+        self.entry_min_ev = ctk.CTkEntry(ev_frame, placeholder_text="Min EV", width=70)
+        self.entry_min_ev.insert(0, "-20.0")
+        self.entry_min_ev.grid(row=0, column=0, padx=5)
+        
+        ctk.CTkLabel(ev_frame, text="to").grid(row=0, column=1)
+        
+        self.entry_max_ev = ctk.CTkEntry(ev_frame, placeholder_text="Max EV", width=70)
+        self.entry_max_ev.insert(0, "20.0")
+        self.entry_max_ev.grid(row=0, column=2, padx=5)
+
         # Colonna Destra
         right_panel = ctk.CTkFrame(self)
         right_panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
@@ -107,8 +125,25 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         def update_ui(curr, total):
             self.after(0, lambda: self.progress_bar.set(curr/total))
             self.after(0, lambda: self.progress_label.configure(text=f"Scansione: {curr}/{total}"))
+        
         total = self.logic.scan_directory(update_ui)
-        self.after(0, lambda: self.lbl_count.configure(text=f"Foto filtrate: 0 / {total}"))
+        
+        # Dopo la scansione, recuperiamo il range EV per aiutare l'utente
+        min_ev, max_ev = self.logic.get_ev_range()
+        
+        def finalize_ui():
+            self.lbl_count.configure(text=f"Foto filtrate: 0 / {total}")
+            if min_ev is not None:
+                self.lbl_ev_detected.configure(text=f"Range rilevato: {min_ev} - {max_ev}")
+                # Opzionale: pre-compila con i valori rilevati per comodità
+                self.entry_min_ev.delete(0, "end")
+                self.entry_min_ev.insert(0, str(min_ev))
+                self.entry_max_ev.delete(0, "end")
+                self.entry_max_ev.insert(0, str(max_ev))
+            else:
+                self.lbl_ev_detected.configure(text="Nessun dato EV trovato")
+
+        self.after(0, finalize_ui)
 
     def apply_filters(self):
         if not self.logic: return
@@ -119,12 +154,21 @@ class TimelapseFilterFrame(ctk.CTkFrame):
             # Legge i giorni selezionati (0=Lun, 6=Dom)
             allowed_days = [i for i, v in enumerate(self.days_vars) if v.get() == 1]
             
+            # Legge i valori EV
+            try:
+                min_ev = float(self.entry_min_ev.get())
+                max_ev = float(self.entry_max_ev.get())
+            except ValueError:
+                min_ev, max_ev = -100.0, 100.0 # Fallback se vuoto o non valido
+
             self.filtered_images = self.logic.filter_images(
                 start_date, 
                 end_date, 
                 self.entry_start_time.get(), 
                 self.entry_end_time.get(), 
-                allowed_days
+                allowed_days,
+                min_ev,
+                max_ev
             )
             self.log_textbox.delete("1.0", "end")
             for name, dt in self.filtered_images:
