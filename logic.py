@@ -45,23 +45,44 @@ class TimelapseLogic:
         return datetime.fromtimestamp(mtime)
 
     def scan_directory(self, progress_callback: Callable[[int, int], None]) -> int:
-        files = [f for f in os.listdir(self.source_dir) 
-                 if os.path.splitext(f)[1].lower() in self.IMAGE_EXTENSIONS]
-        total_files = len(files)
-        new_entries = 0
+        """
+        Scansiona la directory in parallelo per una velocità massima.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        
+        all_files = [f for f in os.listdir(self.source_dir) 
+                     if os.path.splitext(f)[1].lower() in self.IMAGE_EXTENSIONS]
+        
+        # Filtriamo solo i file non ancora in cache
+        to_scan = [f for f in all_files if f not in self.cache]
+        total_files = len(all_files)
+        total_to_scan = len(to_scan)
+        
+        if total_to_scan == 0:
+            progress_callback(total_files, total_files)
+            return total_files
 
-        for i, filename in enumerate(files):
-            if filename not in self.cache:
-                filepath = os.path.join(self.source_dir, filename)
-                dt = self.get_exif_date(filepath)
-                if dt:
-                    self.cache[filename] = dt.strftime('%Y-%m-%d %H:%M:%S')
-                    new_entries += 1
+        # Funzione helper per il thread
+        def process_single_file(filename):
+            filepath = os.path.join(self.source_dir, filename)
+            dt = self.get_exif_date(filepath)
+            return filename, dt.strftime('%Y-%m-%d %H:%M:%S') if dt else None
+
+        # Usiamo un pool di thread (il numero ottimale è solitamente 2x-4x i core per I/O)
+        processed_count = 0
+        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+            results = executor.map(process_single_file, to_scan)
             
-            if i % 10 == 0 or i == total_files - 1:
-                progress_callback(i + 1, total_files)
+            for filename, dt_str in results:
+                if dt_str:
+                    self.cache[filename] = dt_str
+                
+                processed_count += 1
+                # Aggiorniamo la UI (mostrando il totale complessivo)
+                if processed_count % 50 == 0 or processed_count == total_to_scan:
+                    progress_callback(len(all_files) - total_to_scan + processed_count, total_files)
 
-        if new_entries > 0:
+        if total_to_scan > 0:
             self._save_cache()
         return total_files
 
