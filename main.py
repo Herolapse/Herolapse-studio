@@ -189,7 +189,10 @@ class TimelapseFilterFrame(ctk.CTkFrame):
             self.log_textbox.delete("1.0", "end")
             for name, dt in self.filtered_images:
                 self.log_textbox.insert("end", f"[{dt}] {name}\n")
-            self.lbl_count.configure(text=f"Filtrate: {len(self.filtered_images)} / {len(self.logic.cache)}")
+            
+            # Utilizzo del metodo SQL invece dell'attributo inesistente .cache
+            total_db = self.logic.get_total_count()
+            self.lbl_count.configure(text=f"Filtrate: {len(self.filtered_images)} / {total_db}")
             self.btn_copy.configure(state="normal" if self.filtered_images else "disabled")
         except Exception as e:
             messagebox.showerror("Errore", str(e))
