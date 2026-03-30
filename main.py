@@ -22,6 +22,12 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         self.source_dir = ""
         self.dest_dir = ""
         self.thumbnails_labels = []  # Per gestire il cleanup della memoria
+        
+        # Stato Paginazione
+        self.current_page = 0
+        self.page_size = 150
+        self.total_filtered = 0
+        
         self._setup_ui()
 
     def _setup_ui(self):
@@ -171,6 +177,19 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         for i in range(4):
             self.scroll_frame.grid_columnconfigure(i, weight=1)
 
+        # Pagination Controls
+        self.page_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
+        self.page_frame.pack(pady=5, fill="x")
+        
+        self.btn_prev = ctk.CTkButton(self.page_frame, text="< Indietro", width=100, command=self.prev_page, state="disabled")
+        self.btn_prev.pack(side="left", padx=20)
+        
+        self.lbl_page = ctk.CTkLabel(self.page_frame, text="Pagina 1 di 1", font=ctk.CTkFont(weight="bold"))
+        self.lbl_page.pack(side="left", expand=True)
+        
+        self.btn_next = ctk.CTkButton(self.page_frame, text="Avanti >", width=100, command=self.next_page, state="disabled")
+        self.btn_next.pack(side="right", padx=20)
+
         self.btn_copy = ctk.CTkButton(
             right_panel,
             text="Copia Foto Filtrate",
@@ -251,6 +270,22 @@ class TimelapseFilterFrame(ctk.CTkFrame):
     def apply_filters(self):
         if not self.logic:
             return
+        self.current_page = 0  # Reset alla prima pagina
+        self._load_current_page()
+
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._load_current_page()
+
+    def next_page(self):
+        total_pages = (self.total_filtered + self.page_size - 1) // self.page_size
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self._load_current_page()
+
+    def _load_current_page(self):
+        """Carica la pagina corrente basata sullo stato di paginazione."""
         try:
             start_date = datetime.strptime(self.entry_start_date.get(), "%Y-%m-%d")
             end_date = datetime.strptime(self.entry_end_date.get(), "%Y-%m-%d")
@@ -266,7 +301,23 @@ class TimelapseFilterFrame(ctk.CTkFrame):
             except ValueError:
                 sharp_thresh = 0.0
 
-            # Caricamento immagini limitato
+            # Conteggio totale reale via SQL
+            self.total_filtered = self.logic.count_filtered_images(
+                start_date,
+                end_date,
+                self.entry_start_time.get(),
+                self.entry_end_time.get(),
+                min_ev,
+                max_ev,
+                exclude_blur,
+                sharp_thresh,
+                allowed_days,
+            )
+
+            # Calcolo Offset
+            offset = self.current_page * self.page_size
+
+            # Caricamento immagini limitato alla pagina
             self.filtered_images = self.logic.filter_images(
                 start_date,
                 end_date,
@@ -277,25 +328,30 @@ class TimelapseFilterFrame(ctk.CTkFrame):
                 max_ev,
                 exclude_blur,
                 sharp_thresh,
+                limit=self.page_size,
+                offset=offset,
             )
 
-            # Conteggio totale reale via SQL
-            total_filtered = self.logic.count_filtered_images(
-                start_date,
-                end_date,
-                min_ev,
-                max_ev,
-                exclude_blur,
-                sharp_thresh,
-                allowed_days,
-            )
+            self._render_grid(self.total_filtered)
+            self._update_pagination_ui()
 
-            self._render_grid(total_filtered)
             self.btn_copy.configure(
-                state="normal" if self.filtered_images else "disabled"
+                state="normal" if self.total_filtered > 0 else "disabled"
             )
         except Exception as e:
             messagebox.showerror("Errore", str(e))
+
+    def _update_pagination_ui(self):
+        """Aggiorna lo stato dei bottoni e la label della pagina."""
+        total_pages = max(
+            1, (self.total_filtered + self.page_size - 1) // self.page_size
+        )
+        self.lbl_page.configure(text=f"Pagina {self.current_page + 1} di {total_pages}")
+
+        self.btn_prev.configure(state="normal" if self.current_page > 0 else "disabled")
+        self.btn_next.configure(
+            state="normal" if self.current_page < total_pages - 1 else "disabled"
+        )
 
     def _render_grid(self, total_count):
         """Pulisce e popola la griglia di anteprime con conversione RGB."""

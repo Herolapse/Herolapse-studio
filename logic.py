@@ -189,16 +189,28 @@ class TimelapseLogic:
 
     def count_filtered_images(self, 
                              start_date: datetime, end_date: datetime,
+                             start_time: str, end_time: str,
                              min_ev: float, max_ev: float,
                              exclude_blur: bool, sharpness_threshold: float,
                              allowed_days: List[int]) -> int:
-        """Restituisce il conteggio totale delle foto che corrispondono ai filtri."""
+        """Restituisce il conteggio totale delle foto che corrispondono ESATTAMENTE a tutti i filtri."""
         sql_days = [0 if d == 6 else d + 1 for d in allowed_days]
         days_placeholder = ",".join(map(str, sql_days))
         blur_filter = f"AND sharpness_score > {sharpness_threshold}" if exclude_blur else ""
         
-        query = f"SELECT COUNT(*) FROM photos WHERE date(date_taken) BETWEEN ? AND ? AND ev100 BETWEEN ? AND ? AND CAST(strftime('%w', date_taken) AS INTEGER) IN ({days_placeholder}) {blur_filter}"
-        params = (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), min_ev, max_ev)
+        query = f"""
+            SELECT COUNT(*) FROM photos 
+            WHERE date(date_taken) BETWEEN ? AND ? 
+            AND ev100 BETWEEN ? AND ? 
+            AND time(date_taken) BETWEEN ? AND ?
+            AND CAST(strftime('%w', date_taken) AS INTEGER) IN ({days_placeholder}) 
+            {blur_filter}
+        """
+        params = (
+            start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), 
+            min_ev, max_ev,
+            f"{start_time}:00", f"{end_time}:59"
+        )
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -213,8 +225,10 @@ class TimelapseLogic:
                       allowed_days: List[int],
                       min_ev: float, max_ev: float,
                       exclude_blur: bool = False,
-                      sharpness_threshold: float = 0.0) -> List[Tuple[str, datetime, bytes]]:
-        """Filtraggio con LIMIT 150 per visualizzazione UI."""
+                      sharpness_threshold: float = 0.0,
+                      limit: int = 150,
+                      offset: int = 0) -> List[Tuple[str, datetime, bytes]]:
+        """Filtraggio con paginazione SQL (LIMIT/OFFSET)."""
         sql_days = [0 if d == 6 else d + 1 for d in allowed_days]
         days_placeholder = ",".join(map(str, sql_days))
         blur_filter = f"AND sharpness_score > {sharpness_threshold}" if exclude_blur else ""
@@ -227,12 +241,13 @@ class TimelapseLogic:
             AND CAST(strftime('%w', date_taken) AS INTEGER) IN ({days_placeholder})
             {blur_filter}
             ORDER BY date_taken ASC
-            LIMIT 150
+            LIMIT ? OFFSET ?
         """
         
         params = (
             start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'),
-            min_ev, max_ev, f"{start_time}:00", f"{end_time}:59"
+            min_ev, max_ev, f"{start_time}:00", f"{end_time}:59",
+            limit, offset
         )
 
         try:
