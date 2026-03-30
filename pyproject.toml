@@ -1,0 +1,14 @@
+[project]
+name = "hero-selector"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "customtkinter>=5.2.2",
+    "numpy>=2.4.4",
+    "opencv-python-headless>=4.13.0.92",
+    "piexif>=1.1.3",
+    "pillow>=12.1.1",
+    "pyinstaller>=6.19.0",
+]

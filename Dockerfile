@@ -1,5 +1,13 @@
 # --- Dockerfile per Build Linux ---
-FROM python:3.11-slim AS linux-builder
+FROM python:3.13-slim AS linux-builder
+
+# Python settings
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# UV settings
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_PROJECT_ENVIRONMENT=/usr/local/
 
 # Installazione dipendenze di sistema per GUI e PyInstaller
 RUN apt-get update && apt-get install -y \
@@ -9,19 +17,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Installazione dipendenze Python
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir pyinstaller
+# Install uv from official image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Install python requirements
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
 
 # Copia sorgenti
 COPY main.py logic.py .
 
 # Comando di default per la build Linux
-# --noconsole nasconde il terminale all'avvio dell'app
-# --onefile impacchetta tutto in un unico eseguibile
-CMD ["pyinstaller", "--noconsole", "--onefile", "--name", "TimelapsePrep_Linux", "main.py"]
-
-# --- ISTRUZIONI PER WINDOWS (DA ESEGUIRE VIA DOCKER RUN) ---
-# Poiché configurare Wine da zero in un Dockerfile è complesso e prono a errori,
-# si raccomanda l'uso dell'immagine specializzata cdrx/pyinstaller-windows
+CMD ["pyinstaller", "--noconsole", "--onefile", "--collect-all", "customtkinter", "--hidden-import", "PIL._tkinter_finder", "--name", "TimelapsePrep_Linux", "main.py"]

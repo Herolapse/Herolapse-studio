@@ -28,7 +28,7 @@ build-windows:
 	docker run --rm \
 		-v "$(shell pwd):/src" \
 		$(DOCKER_IMAGE_WIN) \
-		"python -m pip install --upgrade pip && pip install --upgrade pyinstaller && pip install -r requirements.txt && pyinstaller --noconsole --onefile --collect-all customtkinter --name $(APP_NAME_WIN) main.py"
+		"python -m pip install --upgrade pip && pip install --upgrade pyinstaller && pip install -r requirements.txt && pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import PIL._tkinter_finder --name $(APP_NAME_WIN) main.py"
 	@echo "Fatto! Eseguibile Windows disponibile in ./dist/windows/$(APP_NAME_WIN).exe"
 
 # --- DEBUG WINDOWS (con console visibile per vedere errori) ---
@@ -37,7 +37,7 @@ debug-windows:
 	docker run --rm \
 		-v "$(shell pwd):/src" \
 		$(DOCKER_IMAGE_WIN) \
-		"python -m pip install --upgrade pip && pip install --upgrade pyinstaller && pip install -r requirements.txt && pyinstaller --onefile --collect-all customtkinter --name $(APP_NAME_WIN)_Debug main.py"
+		"python -m pip install --upgrade pip && pip install --upgrade pyinstaller && pip install -r requirements.txt && pyinstaller --onefile --collect-all customtkinter --hidden-import PIL._tkinter_finder --name $(APP_NAME_WIN)_Debug main.py"
 	@echo "Fatto! Eseguibile di debug disponibile in ./dist/windows/$(APP_NAME_WIN)_Debug.exe"
 
 # --- PULIZIA ---
