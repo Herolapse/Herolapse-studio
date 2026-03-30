@@ -272,6 +272,74 @@ class TimelapseLogic:
             if i % 10 == 0 or i == total - 1:
                 progress_callback(i + 1, total)
 
+class PremiereRenamerLogic:
+    """Logica per la rinominazione sequenziale delle immagini per Adobe Premiere Pro."""
+    
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tiff", ".bmp"}
+
+    def get_capture_date(self, filepath: str) -> datetime:
+        """Estrae la data di scatto (EXIF) con fallback sulla data di modifica file."""
+        try:
+            with Image.open(filepath) as img:
+                exif = img._getexif()
+                if exif:
+                    # 36867 è il tag ID per DateTimeOriginal
+                    dt_str = exif.get(36867)
+                    if dt_str:
+                        return datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S")
+        except Exception:
+            pass
+        
+        # Fallback sulla data di modifica se l'EXIF non è presente o è corrotto
+        return datetime.fromtimestamp(os.path.getmtime(filepath))
+
+    def process_renaming(self, 
+                         input_dir: str, 
+                         output_dir: str, 
+                         prefix: str, 
+                         progress_callback: Callable[[int, int, str], None]):
+        """Scansiona, ordina e copia le immagini rinominandole in modo sequenziale."""
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 1. Scansione e Estrazione Date
+        files = [f for f in os.listdir(input_dir) 
+                 if os.path.splitext(f)[1].lower() in self.IMAGE_EXTENSIONS]
+        
+        total_files = len(files)
+        if total_files == 0:
+            return
+
+        image_data = []
+        for i, filename in enumerate(files):
+            filepath = os.path.join(input_dir, filename)
+            capture_date = self.get_capture_date(filepath)
+            image_data.append((filepath, capture_date))
+            
+            if i % 10 == 0 or i == total_files - 1:
+                progress_callback(i + 1, total_files, f"Analisi date: {i+1}/{total_files}")
+
+        # 2. Ordinamento Cronologico
+        image_data.sort(key=lambda x: x[1])
+
+        # 3. Calcolo Padding Numerico
+        # Se abbiamo 1000 foto, servono 4 cifre (0001-1000). 
+        # log10(1000) = 3, quindi floor(3) + 1 = 4.
+        padding = len(str(total_files))
+        
+        # 4. Copia e Rinominazione
+        for i, (src_path, _) in enumerate(image_data, start=1):
+            ext = os.path.splitext(src_path)[1].lower()
+            # Esempio: timelapse_0001.jpg
+            new_filename = f"{prefix}_{i:0{padding}d}{ext}"
+            dst_path = os.path.join(output_dir, new_filename)
+            
+            # Copia sicura mantenendo i metadati
+            shutil.copy2(src_path, dst_path)
+            
+            if i % 10 == 0 or i == total_files:
+                progress_callback(i, total_files, f"Copia in corso: {i}/{total_files}")
+
 class WatermarkLogic:
     @staticmethod
     def add_date_label(image_path: str, output_path: str):
