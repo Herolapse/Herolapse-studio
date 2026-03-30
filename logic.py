@@ -2,7 +2,10 @@ import os
 import sqlite3
 import shutil
 import math
+import cv2
+import numpy as np
 import piexif
+import io
 from datetime import datetime
 from typing import Dict, List, Tuple, Callable, Optional, Union, Any
 from concurrent.futures import ThreadPoolExecutor
@@ -19,11 +22,10 @@ class TimelapseLogic:
         self._init_db()
 
     def _init_db(self):
-        """Inizializza il database SQLite e crea tabelle/indici."""
+        """Inizializza il database SQLite e aggiunge colonne mancanti."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                # Creazione Tabella
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS photos (
                         filename TEXT PRIMARY KEY,
@@ -31,12 +33,20 @@ class TimelapseLogic:
                         iso INTEGER,
                         aperture REAL,
                         shutter REAL,
-                        ev100 REAL
+                        ev100 REAL,
+                        sharpness_score REAL,
+                        thumbnail BLOB
                     )
                 """)
-                # Creazione Indici per filtraggio istantaneo
+                # Verifica se la colonna thumbnail esiste (per migrazione DB esistenti)
+                cursor.execute("PRAGMA table_info(photos)")
+                columns = [column[1] for column in cursor.fetchall()]
+                if 'thumbnail' not in columns:
+                    cursor.execute("ALTER TABLE photos ADD COLUMN thumbnail BLOB")
+                
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_date ON photos(date_taken)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_ev ON photos(ev100)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sharpness ON photos(sharpness_score)")
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Errore inizializzazione DB: {e}")
@@ -47,27 +57,55 @@ class TimelapseLogic:
         try: return float(ratio)
         except (ValueError, TypeError): return 0.0
 
-    def get_full_exif_data(self, filename: str) -> Tuple[str, Optional[str], Optional[int], Optional[float], Optional[float], Optional[float]]:
-        """Estrae dati EXIF e calcola EV100 per un singolo file."""
-        filepath = os.path.join(self.source_dir, filename)
-        res = [filename, None, None, None, None, None]
+    def process_image_data(self, filepath: str) -> Tuple[float, bytes]:
+        """Calcola sharpness (gray) e genera thumbnail a colori (300x300)."""
         try:
+            # Caricamento a colori per la miniatura
+            img_color = cv2.imread(filepath, cv2.IMREAD_COLOR)
+            if img_color is None: return 0.0, b""
+            
+            # 1. Calcolo Sharpness (su versione grigia temporanea)
+            img_gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+            h, w = img_gray.shape[:2]
+            scale = min(500/w, 500/h)
+            img_resized_gray = cv2.resize(img_gray, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_AREA)
+            sharpness = cv2.Laplacian(img_resized_gray, cv2.CV_64F).var()
+
+            # 2. Generazione Thumbnail con Aspect Ratio Originale
+            # Altezza fissa a 300px, larghezza proporzionale
+            img_rgb = cv2.cvtColor(img_color, cv2.COLOR_BGR2RGB)
+            h_orig, w_orig = img_rgb.shape[:2]
+            
+            target_h = 300
+            target_w = int(w_orig * (target_h / h_orig))
+            thumb_size = (target_w, target_h)
+            
+            img_thumb = cv2.resize(img_rgb, thumb_size, interpolation=cv2.INTER_AREA)
+            
+            # Compressione JPEG in memoria
+            is_success, buffer = cv2.imencode('.jpg', cv2.cvtColor(img_thumb, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 75])
+            return sharpness, buffer.tobytes()
+        except Exception:
+            return 0.0, b""
+
+    def get_full_exif_data(self, filename: str) -> Tuple[str, Optional[str], Optional[int], Optional[float], Optional[float], Optional[float], float, bytes]:
+        """Estrae EXIF, Sharpness e Thumbnail per un file."""
+        filepath = os.path.join(self.source_dir, filename)
+        res = [filename, None, None, None, None, None, 0.0, b""]
+        try:
+            # Calcolo Sharpness e Thumbnail
+            res[6], res[7] = self.process_image_data(filepath)
+
             with Image.open(filepath) as img:
                 exif = img._getexif()
                 if exif:
                     tags = {TAGS.get(tag, tag): value for tag, value in exif.items()}
-                    
-                    # Data
                     dt_str = tags.get("DateTimeOriginal")
                     res[1] = datetime.strptime(dt_str, '%Y:%m:%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S') if dt_str else \
                              datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%Y-%m-%d %H:%M:%S')
-
-                    # Parametri EV
-                    res[2] = tags.get("ISOSpeedRatings") # ISO
-                    res[3] = self._convert_to_float(tags.get("FNumber")) # Aperture
-                    res[4] = self._convert_to_float(tags.get("ExposureTime")) # Shutter
-
-                    # Calcolo EV100
+                    res[2] = tags.get("ISOSpeedRatings")
+                    res[3] = self._convert_to_float(tags.get("FNumber"))
+                    res[4] = self._convert_to_float(tags.get("ExposureTime"))
                     if res[3] and res[4] and res[2] and res[2] > 0:
                         ev = math.log2(res[3]**2 / res[4]) - math.log2(res[2] / 100.0)
                         res[5] = round(ev, 2)
@@ -75,14 +113,13 @@ class TimelapseLogic:
         return tuple(res)
 
     def scan_directory(self, progress_callback: Callable[[int, int], None]) -> int:
-        """Scansione parallela con inserimento in batch nel database."""
         all_files = [f for f in os.listdir(self.source_dir) 
                      if os.path.splitext(f)[1].lower() in self.IMAGE_EXTENSIONS]
         
-        # Recupero file già presenti nel DB per evitare scansioni doppie
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT filename FROM photos")
+            # Seleziona i file che hanno già una thumbnail valida (lunghezza > 0)
+            cursor.execute("SELECT filename FROM photos WHERE thumbnail IS NOT NULL AND length(thumbnail) > 0")
             db_files = {row[0] for row in cursor.fetchall()}
 
         to_scan = [f for f in all_files if f not in db_files]
@@ -93,50 +130,40 @@ class TimelapseLogic:
             progress_callback(total_files, total_files)
             return total_files
 
-        # Estrazione dati in parallelo
         batch_data = []
         processed_count = 0
         
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+        with ThreadPoolExecutor(max_workers=max(1, os.cpu_count() - 1)) as executor:
             results = executor.map(self.get_full_exif_data, to_scan)
-            
             for data in results:
                 batch_data.append(data)
                 processed_count += 1
-                
-                # Inserimento in batch ogni 1000 record per performance
-                if len(batch_data) >= 1000:
+                if len(batch_data) >= 200: # Batch più piccoli per gestire i BLOB in memoria
                     self._insert_batch(batch_data)
                     batch_data = []
-                
-                if processed_count % 50 == 0 or processed_count == total_to_scan:
+                if processed_count % 10 == 0 or processed_count == total_to_scan:
                     progress_callback(len(all_files) - total_to_scan + processed_count, total_files)
 
-        # Ultimo batch rimasto
         if batch_data:
             self._insert_batch(batch_data)
-
         return total_files
 
     def _insert_batch(self, data: List[tuple]):
-        """Inserimento atomico di un blocco di dati."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.executemany("INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?)", data)
+                cursor.executemany("INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?)", data)
                 conn.commit()
         except sqlite3.Error as e:
             print(f"Errore inserimento batch: {e}")
 
     def get_total_count(self) -> int:
-        """Restituisce il numero totale di foto censite nel database."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM photos")
                 return cursor.fetchone()[0]
-        except sqlite3.Error:
-            return 0
+        except sqlite3.Error: return 0
 
     def get_ev_range(self) -> Tuple[Optional[float], Optional[float]]:
         with sqlite3.connect(self.db_path) as conn:
@@ -150,36 +177,62 @@ class TimelapseLogic:
             cursor.execute("SELECT MIN(date(date_taken)), MAX(date(date_taken)) FROM photos")
             return cursor.fetchone()
 
+    def get_sharpness_stats(self) -> Tuple[float, float]:
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT sharpness_score FROM photos WHERE sharpness_score > 0")
+                scores = [r[0] for r in cursor.fetchall()]
+                if not scores: return 0.0, 0.0
+                return round(float(np.mean(scores)), 2), round(float(np.percentile(scores, 15)), 2)
+        except Exception: return 0.0, 0.0
+
+    def count_filtered_images(self, 
+                             start_date: datetime, end_date: datetime,
+                             min_ev: float, max_ev: float,
+                             exclude_blur: bool, sharpness_threshold: float,
+                             allowed_days: List[int]) -> int:
+        """Restituisce il conteggio totale delle foto che corrispondono ai filtri."""
+        sql_days = [0 if d == 6 else d + 1 for d in allowed_days]
+        days_placeholder = ",".join(map(str, sql_days))
+        blur_filter = f"AND sharpness_score > {sharpness_threshold}" if exclude_blur else ""
+        
+        query = f"SELECT COUNT(*) FROM photos WHERE date(date_taken) BETWEEN ? AND ? AND ev100 BETWEEN ? AND ? AND CAST(strftime('%w', date_taken) AS INTEGER) IN ({days_placeholder}) {blur_filter}"
+        params = (start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), min_ev, max_ev)
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                return cursor.fetchone()[0]
+        except sqlite3.Error: return 0
+
     def filter_images(self, 
                       start_date: datetime, end_date: datetime,
                       start_time: str, end_time: str,
                       allowed_days: List[int],
-                      min_ev: float, max_ev: float) -> List[Tuple[str, datetime]]:
-        """Filtraggio eseguito interamente via SQL per velocità massima."""
-        
-        # SQLite strftime %w: 0=Domenica, 1=Lunedì... 6=Sabato.
-        # UI days_vars: 0=Lunedì, 1=Martedì... 6=Domenica.
-        # Conversione per SQL:
-        sql_days = []
-        for d in allowed_days:
-            sql_days.append(0 if d == 6 else d + 1)
-        
+                      min_ev: float, max_ev: float,
+                      exclude_blur: bool = False,
+                      sharpness_threshold: float = 0.0) -> List[Tuple[str, datetime, bytes]]:
+        """Filtraggio con LIMIT 150 per visualizzazione UI."""
+        sql_days = [0 if d == 6 else d + 1 for d in allowed_days]
         days_placeholder = ",".join(map(str, sql_days))
+        blur_filter = f"AND sharpness_score > {sharpness_threshold}" if exclude_blur else ""
 
         query = f"""
-            SELECT filename, date_taken FROM photos
+            SELECT filename, date_taken, thumbnail FROM photos
             WHERE date(date_taken) BETWEEN ? AND ?
             AND ev100 BETWEEN ? AND ?
             AND time(date_taken) BETWEEN ? AND ?
             AND CAST(strftime('%w', date_taken) AS INTEGER) IN ({days_placeholder})
+            {blur_filter}
             ORDER BY date_taken ASC
+            LIMIT 150
         """
         
         params = (
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d'),
-            min_ev, max_ev,
-            f"{start_time}:00", f"{end_time}:59"
+            start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'),
+            min_ev, max_ev, f"{start_time}:00", f"{end_time}:59"
         )
 
         try:
@@ -187,8 +240,7 @@ class TimelapseLogic:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 results = cursor.fetchall()
-                # Conversione date string -> datetime per compatibilità con UI
-                return [(r[0], datetime.strptime(r[1], '%Y-%m-%d %H:%M:%S')) for r in results]
+                return [(r[0], datetime.strptime(r[1], '%Y-%m-%d %H:%M:%S'), r[2]) for r in results]
         except sqlite3.Error as e:
             print(f"Errore query filtraggio: {e}")
             return []
