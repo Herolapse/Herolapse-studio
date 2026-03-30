@@ -1,9 +1,7 @@
-import os
 import threading
 import io
-import tkinter
 from datetime import datetime
-from PIL import Image, ImageTk
+from PIL import Image
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from logic import TimelapseLogic, WatermarkLogic
@@ -22,12 +20,12 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         self.source_dir = ""
         self.dest_dir = ""
         self.thumbnails_labels = []  # Per gestire il cleanup della memoria
-        
+
         # Stato Paginazione
         self.current_page = 0
-        self.page_size = 150
+        self.page_size = 50
         self.total_filtered = 0
-        
+
         self._setup_ui()
 
     def _setup_ui(self):
@@ -169,10 +167,9 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         right_panel = ctk.CTkFrame(self)
         right_panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
-        self.scroll_frame = ctk.CTkScrollableFrame(
-            right_panel, label_text="Anteprime Filtrate (Limite 150)"
-        )
+        self.scroll_frame = ctk.CTkScrollableFrame(right_panel)
         self.scroll_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
         # Configurazione colonne griglia (impostate a 4)
         for i in range(4):
             self.scroll_frame.grid_columnconfigure(i, weight=1)
@@ -180,14 +177,28 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         # Pagination Controls
         self.page_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
         self.page_frame.pack(pady=5, fill="x")
-        
-        self.btn_prev = ctk.CTkButton(self.page_frame, text="< Indietro", width=100, command=self.prev_page, state="disabled")
+
+        self.btn_prev = ctk.CTkButton(
+            self.page_frame,
+            text="< Indietro",
+            width=100,
+            command=self.prev_page,
+            state="disabled",
+        )
         self.btn_prev.pack(side="left", padx=20)
-        
-        self.lbl_page = ctk.CTkLabel(self.page_frame, text="Pagina 1 di 1", font=ctk.CTkFont(weight="bold"))
+
+        self.lbl_page = ctk.CTkLabel(
+            self.page_frame, text="Pagina 1 di 1", font=ctk.CTkFont(weight="bold")
+        )
         self.lbl_page.pack(side="left", expand=True)
-        
-        self.btn_next = ctk.CTkButton(self.page_frame, text="Avanti >", width=100, command=self.next_page, state="disabled")
+
+        self.btn_next = ctk.CTkButton(
+            self.page_frame,
+            text="Avanti >",
+            width=100,
+            command=self.next_page,
+            state="disabled",
+        )
         self.btn_next.pack(side="right", padx=20)
 
         self.btn_copy = ctk.CTkButton(
@@ -230,7 +241,8 @@ class TimelapseFilterFrame(ctk.CTkFrame):
 
     def _scan_thread(self):
         def update_ui(curr, total):
-            self.after(0, lambda: self.progress_bar.set(curr / total))
+            if total > 0:
+                self.after(0, lambda: self.progress_bar.set(curr / total))
             self.after(
                 0,
                 lambda: self.progress_label.configure(
@@ -353,6 +365,14 @@ class TimelapseFilterFrame(ctk.CTkFrame):
             state="normal" if self.current_page < total_pages - 1 else "disabled"
         )
 
+    def _on_mouse_wheel(self, event):
+        """Reindirizza lo scroll della rotella all'handler interno del frame scrollabile."""
+        try:
+            # Utilizziamo l'handler nativo di customtkinter che gestisce già le differenze tra OS
+            self.scroll_frame._on_mousewheel(event)
+        except Exception:
+            pass  # Evitiamo crash se il metodo interno dovesse cambiare in futuro
+
     def _render_grid(self, total_count):
         """Pulisce e popola la griglia di anteprime con conversione RGB."""
         # Cleanup
@@ -392,6 +412,11 @@ class TimelapseFilterFrame(ctk.CTkFrame):
                     )
                     lbl.grid(row=i // 4, column=i % 4, padx=10, pady=10, sticky="nsew")
 
+                    # BINDING PER LO SCROLL (Linux + Windows/macOS)
+                    lbl.bind("<Button-4>", self._on_mouse_wheel)
+                    lbl.bind("<Button-5>", self._on_mouse_wheel)
+                    lbl.bind("<MouseWheel>", self._on_mouse_wheel)
+
                 except Exception as e:
                     print(f"Errore rendering {name}: {e}")
                     continue
@@ -410,7 +435,8 @@ class TimelapseFilterFrame(ctk.CTkFrame):
 
     def _copy_thread(self):
         def update_ui(curr, total):
-            self.after(0, lambda: self.progress_bar.set(curr / total))
+            if total > 0:
+                self.after(0, lambda: self.progress_bar.set(curr / total))
             self.after(
                 0, lambda: self.progress_label.configure(text=f"Copia: {curr}/{total}")
             )
