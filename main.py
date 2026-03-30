@@ -170,8 +170,9 @@ class TimelapseFilterFrame(ctk.CTkFrame):
         self.scroll_frame = ctk.CTkScrollableFrame(right_panel)
         self.scroll_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        # Configurazione colonne griglia (impostate a 4)
-        for i in range(4):
+        # Configurazione colonne griglia (impostate a 2 per gestire immagini larghe mantenendo l'aspect ratio)
+        self.num_cols = 3
+        for i in range(self.num_cols):
             self.scroll_frame.grid_columnconfigure(i, weight=1)
 
         # Pagination Controls
@@ -392,15 +393,20 @@ class TimelapseFilterFrame(ctk.CTkFrame):
                     if pil_img.mode != "RGB":
                         pil_img = pil_img.convert("RGB")
 
-                    # Usa le dimensioni reali dell'immagine (già ridimensionata a target_h=300)
-                    w_disp, h_disp = pil_img.size
+                    # Calcola le dimensioni per avere un'altezza fissa di 300px mantenendo l'aspect ratio
+                    w_orig, h_orig = pil_img.size
+                    target_h = 300
+                    target_w = int(w_orig * (target_h / h_orig))
+
                     ctk_img = ctk.CTkImage(
-                        light_image=pil_img, dark_image=pil_img, size=(w_disp, h_disp)
+                        light_image=pil_img,
+                        dark_image=pil_img,
+                        size=(target_w, target_h),
                     )
 
                     self.thumbnails_labels.append(ctk_img)
 
-                    # Layout: Griglia a 4 colonne
+                    # Layout: Griglia configurata nel setup
                     lbl = ctk.CTkLabel(
                         self.scroll_frame,
                         image=ctk_img,
@@ -410,7 +416,12 @@ class TimelapseFilterFrame(ctk.CTkFrame):
                         padx=5,
                         pady=5,
                     )
-                    lbl.grid(row=i // 4, column=i % 4, padx=10, pady=10, sticky="nsew")
+                    lbl.grid(
+                        row=i // self.num_cols,
+                        column=i % self.num_cols,
+                        padx=10,
+                        pady=10,
+                    )
 
                     # BINDING PER LO SCROLL (Linux + Windows/macOS)
                     lbl.bind("<Button-4>", self._on_mouse_wheel)
