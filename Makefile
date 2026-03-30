@@ -3,7 +3,7 @@
 APP_NAME_LINUX = TimelapsePrep_Linux
 APP_NAME_WIN = TimelapsePrep_Win
 DOCKER_IMAGE_LINUX = timelapse-builder-linux
-DOCKER_IMAGE_WIN = cdrx/pyinstaller-windows
+DOCKER_IMAGE_WIN = tobix/pywine:3.11
 
 .PHONY: all build-linux build-windows clean run-nixos
 
@@ -27,8 +27,9 @@ build-windows:
 	@echo "Compilazione .exe per Windows (via Wine/Docker)..."
 	docker run --rm \
 		-v "$(shell pwd):/src" \
+		-w /src \
 		$(DOCKER_IMAGE_WIN) \
-		"python -m pip install --upgrade pip && pip install --upgrade pyinstaller && pip install -r requirements.txt && pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import PIL._tkinter_finder --name $(APP_NAME_WIN) main.py"
+		sh -c "wine python -m pip install --upgrade pip && wine pip install --upgrade pyinstaller && wine pip install -r requirements.txt && wine pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import PIL._tkinter_finder --name TimelapsePrep_Win main.py"
 	@echo "Fatto! Eseguibile Windows disponibile in ./dist/windows/$(APP_NAME_WIN).exe"
 
 # --- DEBUG WINDOWS (con console visibile per vedere errori) ---

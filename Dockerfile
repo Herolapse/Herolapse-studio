@@ -1,13 +1,9 @@
 # --- Dockerfile per Build Linux ---
-FROM python:3.13-slim AS linux-builder
+FROM python:3.11-slim AS linux-builder
 
 # Python settings
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-
-# UV settings
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_PROJECT_ENVIRONMENT=/usr/local/
 
 # Installazione dipendenze di sistema per GUI e PyInstaller
 RUN apt-get update && apt-get install -y \
@@ -17,12 +13,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install uv from official image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
 # Install python requirements
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir pyinstaller
 
 # Copia sorgenti
 COPY main.py logic.py .
