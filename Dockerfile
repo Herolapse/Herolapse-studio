@@ -18,8 +18,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir pyinstaller
 
-# Copia sorgenti
-COPY main.py logic.py .
+# Copia sorgenti mantenendo la struttura
+COPY . .
 
 # Comando di default per la build Linux
-CMD ["pyinstaller", "--noconsole", "--onefile", "--collect-all", "customtkinter", "--hidden-import", "PIL._tkinter_finder", "--name", "TimelapsePrep_Linux", "main.py"]
+CMD ["pyinstaller", "--noconsole", "--onefile", "--collect-all", "customtkinter", "--hidden-import", "PIL._tkinter_finder", "--name", "Herolapse_Studio_Linux", "--icon", "assets/herolapse.ico", "--add-data", "assets/herolapse.ico:assets", "main.py"]

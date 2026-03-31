@@ -1,8 +1,8 @@
 # Makefile per TimelapsePrep Builder
 
-APP_NAME_LINUX = TimelapsePrep_Linux
-APP_NAME_WIN = TimelapsePrep_Win
-DOCKER_IMAGE_LINUX = timelapse-builder-linux
+APP_NAME_LINUX = Herolapse_Studio_Linux
+APP_NAME_WIN = Herolapse_Studio
+DOCKER_IMAGE_LINUX = herolapse-builder-linux
 DOCKER_IMAGE_WIN = tobix/pywine:3.11
 
 .PHONY: all build-linux build-windows clean run-nixos
@@ -29,8 +29,8 @@ build-windows:
 		-v "$(shell pwd):/src" \
 		-w /src \
 		$(DOCKER_IMAGE_WIN) \
-		sh -c "wine python -m pip install --upgrade pip && wine pip install --upgrade pyinstaller && wine pip install -r requirements.txt && wine pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import PIL._tkinter_finder --name TimelapsePrep_Win main.py"
-	@echo "Fatto! Eseguibile Windows disponibile in ./dist/windows/$(APP_NAME_WIN).exe"
+		sh -c "wine python -m pip install --upgrade pip && wine pip install --upgrade pyinstaller && wine pip install -r requirements.txt && wine pyinstaller --noconsole --onefile --collect-all customtkinter --hidden-import PIL._tkinter_finder --name Herolapse_Studio --icon=assets/herolapse.ico --add-data \"assets/herolapse.ico;assets\" main.py"
+	@echo "Fatto! Eseguibile Windows disponibile in ./dist/windows/Herolapse_Studio.exe"
 
 # --- DEBUG WINDOWS (con console visibile per vedere errori) ---
 debug-windows:
