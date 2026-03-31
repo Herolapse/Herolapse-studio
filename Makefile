@@ -1,5 +1,3 @@
-# Makefile per TimelapsePrep Builder
-
 APP_NAME_LINUX = Herolapse_Studio_Linux
 APP_NAME_WIN = Herolapse_Studio
 DOCKER_IMAGE_LINUX = herolapse-builder-linux
