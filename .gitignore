@@ -30,7 +30,7 @@ ENV/
 *.spec
 
 # App Specific
-timelapse_cache.json
+herolapse_studio_cache.json
 
 # OS
 .DS_Store

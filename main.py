@@ -1,7 +1,9 @@
 import os
 import sys
+from PIL import Image, ImageTk
 import customtkinter as ctk
 from tabs import HeroSelect, TimeStamper, SequenceBuilder
+
 
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and for PyInstaller"""
@@ -13,15 +15,23 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
 class HerolapseStudio(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Herolapse Studio")
         self.geometry("1100x750")
 
-        # Caricamento Icona
+        # Caricamento Icona Cross-Platform
         try:
-            self.iconbitmap(resource_path("assets/herolapse.ico"))
+            icon_path = resource_path("assets/herolapse.ico")
+            if sys.platform.startswith("win"):
+                self.iconbitmap(icon_path)
+            else:
+                img = Image.open(icon_path)
+                photo = ImageTk.PhotoImage(img)
+                self.wm_iconphoto(True, photo)
+                self._icon_photo = photo
         except Exception as e:
             print(f"Errore nel caricamento dell'icona: {e}")
 
