@@ -1,6 +1,5 @@
-customtkinter
 Pillow
-piexif
+customtkinter
 numpy<2.0.0
 opencv-python-headless
-vidstab
+piexif
