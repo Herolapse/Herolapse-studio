@@ -30,20 +30,34 @@ class QuickTimelapse(HeroSelect):
         self.btn_dest.pack_forget()
         self.lbl_dest.pack_forget()
 
+        # Rimuoviamo i filtri che l'utente farà nell'altra tab
+        # (Nota: in questa tab vogliamo un timelapse rapido di TUTTO il contenuto della cartella)
+        self.entry_start_date.pack_forget()
+        self.entry_end_date.pack_forget()
+        
+        # Nascondiamo le sezioni filtri
+        for widget in self.left_panel.winfo_children():
+            # Teniamo solo Sorgente e Progress
+            if widget in [self.btn_source, self.lbl_source, self.progress_label, self.progress_bar]:
+                continue
+            # Non nascondiamo il titolo "Configurazione Filtri" se vogliamo rinominarlo
+            if isinstance(widget, ctk.CTkLabel) and widget.cget("text") == "Configurazione Filtri":
+                widget.configure(text="Configurazione Video")
+                continue
+            widget.pack_forget()
+
         # Inseriamo i controlli per l'output video nel left_panel
-        # Li mettiamo sotto la sorgente per coerenza
         self.lbl_output_title = ctk.CTkLabel(
             self.left_panel,
             text="Output Video",
             font=ctk.CTkFont(size=14, weight="bold"),
         )
-        self.lbl_output_title.pack(pady=(10, 5), after=self.lbl_source)
+        self.lbl_output_title.pack(pady=(10, 5))
         
         self.btn_video_dest = ctk.CTkButton(
             self.left_panel, text="Scegli Destinazione Video", command=self.select_video_dest
         )
-        # Lo packiamo dopo il titolo output
-        self.btn_video_dest.pack(pady=5, fill="x", padx=10, after=self.lbl_output_title)
+        self.btn_video_dest.pack(pady=5, fill="x", padx=10)
         
         self.lbl_video_dest = ctk.CTkLabel(
             self.left_panel,
@@ -51,13 +65,11 @@ class QuickTimelapse(HeroSelect):
             font=ctk.CTkFont(size=10),
             wraplength=200,
         )
-        self.lbl_video_dest.pack(pady=2, after=self.btn_video_dest)
+        self.lbl_video_dest.pack(pady=2)
 
-        # Durata e FPS (li mettiamo nel left_panel, sopra la progress bar)
+        # Durata e FPS
         self.settings_frame = ctk.CTkFrame(self.left_panel, fg_color="transparent")
-        self.settings_frame.pack(pady=10, fill="x", padx=5, before=self.progress_label)
-
-        # Centriamo il contenuto della griglia
+        self.settings_frame.pack(pady=10, fill="x", padx=5)
         self.settings_frame.grid_columnconfigure((0, 5), weight=1)
 
         ctk.CTkLabel(self.settings_frame, text="Durata (s):", font=ctk.CTkFont(size=11)).grid(row=0, column=1, padx=(2, 2), pady=2)
@@ -70,7 +82,20 @@ class QuickTimelapse(HeroSelect):
         self.combo_fps.set("30")
         self.combo_fps.grid(row=0, column=4, padx=(0, 2), pady=2)
 
-        # Bottone Genera (nel right_panel, sotto Applica Filtri)
+        self.check_fade = ctk.CTkCheckBox(self.settings_frame, text="Dissolvenza (Anti-Flicker)", font=ctk.CTkFont(size=11))
+        self.check_fade.select()
+        self.check_fade.grid(row=1, column=1, columnspan=4, pady=(5, 0))
+
+        # Ri-packiamo progress bar in fondo
+        self.progress_label.pack(side="bottom", pady=(5, 0))
+        self.progress_bar.pack(side="bottom", pady=10, fill="x", padx=10)
+
+        # Pulizia colonna destra: vogliamo solo il bottone genera, niente griglia
+        self.scroll_frame.pack_forget()
+        self.page_frame.pack_forget()
+        self.lbl_count.pack_forget()
+        self.btn_apply.pack_forget()
+
         self.btn_generate_video = ctk.CTkButton(
             self.right_panel,
             text="Genera Timelapse Video",
@@ -79,18 +104,9 @@ class QuickTimelapse(HeroSelect):
             text_color="black",
             font=ctk.CTkFont(weight="bold"),
             state="disabled",
-            height=50
+            height=60
         )
-        # Pack side="bottom" mette l'elemento in fondo. 
-        # Dato che btn_apply è già packed con side="bottom", 
-        # se packiamo btn_generate_video ORA con side="bottom", andrà SOTTO btn_apply?
-        # In realtà andrà sopra se btn_apply è già lì.
-        # Per averlo SOTTO, dobbiamo pack_forget btn_apply e poi packarli nell'ordine inverso.
-        
-        self.btn_apply.pack_forget()
-        self.btn_generate_video.pack(side="bottom", pady=10, fill="x", padx=20)
-        self.btn_apply.pack(side="bottom", pady=5, fill="x", padx=20)
-
+        self.btn_generate_video.pack(expand=True, padx=40)
 
     def select_video_dest(self):
         path = filedialog.asksaveasfilename(
@@ -104,17 +120,18 @@ class QuickTimelapse(HeroSelect):
             self._check_ready_to_generate()
 
     def _load_current_page(self):
-        super()._load_current_page()
+        # In questa tab non carichiamo anteprime
         self._check_ready_to_generate()
 
     def _check_ready_to_generate(self):
-        if self.video_dest_path and self.total_filtered > 0:
+        # Se c'è una cartella sorgente e un file di destinazione, abilitiamo
+        if self.video_dest_path and self.source_dir:
             self.btn_generate_video.configure(state="normal")
         else:
             self.btn_generate_video.configure(state="disabled")
 
     def start_video_generation(self):
-        if not self.video_dest_path or self.total_filtered == 0:
+        if not self.video_dest_path or not self.source_dir:
             return
         
         try:
@@ -125,7 +142,6 @@ class QuickTimelapse(HeroSelect):
             return
 
         self.btn_generate_video.configure(state="disabled")
-        self.btn_apply.configure(state="disabled")
         
         threading.Thread(
             target=self._video_generation_thread,
@@ -135,65 +151,64 @@ class QuickTimelapse(HeroSelect):
 
     def _video_generation_thread(self, duration: float, fps: float):
         try:
-            # 1. Recupero tutti i path delle foto filtrate (senza paginazione)
-            start_date = datetime.strptime(self.entry_start_date.get(), "%Y-%m-%d")
-            end_date = datetime.strptime(self.entry_end_date.get(), "%Y-%m-%d")
-            allowed_days = [i for i, v in enumerate(self.days_vars) if v.get() == 1]
-            try:
-                min_ev = float(self.entry_min_ev.get())
-                max_ev = float(self.entry_max_ev.get())
-            except ValueError:
-                min_ev, max_ev = -100.0, 100.0
-            exclude_blur = self.check_blur.get() == 1
-            try:
-                sharp_thresh = float(self.entry_sharpness.get())
-            except ValueError:
-                sharp_thresh = 0.0
+            # 1. Recupero TUTTI i file immagine dalla cartella (ordinati per nome)
+            all_files = sorted([
+                f for f in os.listdir(self.source_dir)
+                if os.path.splitext(f)[1].lower() in [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
+            ])
 
-            # Prendiamo TUTTE le foto filtrate (limit=total_filtered)
-            all_filtered = self.logic.filter_images(
-                start_date,
-                end_date,
-                self.entry_start_time.get(),
-                self.entry_end_time.get(),
-                allowed_days,
-                min_ev,
-                max_ev,
-                exclude_blur,
-                sharp_thresh,
-                limit=self.total_filtered,
-                offset=0
-            )
-
-            N = len(all_filtered)
+            N = len(all_files)
             if N == 0:
-                self.after(0, lambda: messagebox.showwarning("Attenzione", "Nessuna foto trovata con i filtri attuali."))
+                self.after(0, lambda: messagebox.showwarning("Attenzione", "Nessuna foto trovata nella cartella sorgente."))
                 return
 
             # 2. Campionamento Matematico
+            use_fade = self.check_fade.get() == 1
             K = int(duration * fps)
-            if N <= K:
-                sampled_indices = range(N)
-                K = N # Ricalibriamo K se abbiamo meno foto del richiesto
+            
+            if use_fade:
+                K_photos = int(K / 2) + 1
+                if N <= K_photos:
+                    sampled_indices = list(range(N))
+                else:
+                    sampled_indices = [round(i * (N - 1) / (max(1, K_photos - 1))) for i in range(K_photos)]
+                total_frames_to_render = max(0, 2 * len(sampled_indices) - 1)
             else:
-                sampled_indices = [round(i * (N - 1) / (K - 1)) for i in range(K)]
+                if N <= K:
+                    sampled_indices = list(range(N))
+                else:
+                    sampled_indices = [round(i * (N - 1) / (max(1, K - 1))) for i in range(K)]
+                total_frames_to_render = len(sampled_indices)
 
             # 3. Configurazione VideoWriter
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(self.video_dest_path, fourcc, fps, (1920, 1080))
 
             # 4. Ciclo di Rendering
+            prev_img = None
+            rendered_count = 0
+            
             for i, idx in enumerate(sampled_indices):
-                filename, _, _ = all_filtered[idx]
+                filename = all_files[idx]
                 filepath = os.path.join(self.source_dir, filename)
                 
-                # Update UI
-                self.after(0, lambda curr=i+1, total=K: self._update_render_progress(curr, total))
-                
                 img = cv2.imread(filepath)
-                if img is not None:
-                    img_resized = cv2.resize(img, (1920, 1080), interpolation=cv2.INTER_LANCZOS4)
-                    out.write(img_resized)
+                if img is None:
+                    continue
+                
+                img_resized = cv2.resize(img, (1920, 1080), interpolation=cv2.INTER_LANCZOS4)
+                
+                if use_fade and prev_img is not None:
+                    fade_img = cv2.addWeighted(prev_img, 0.5, img_resized, 0.5, 0)
+                    out.write(fade_img)
+                    rendered_count += 1
+                    self.after(0, lambda c=rendered_count, t=total_frames_to_render: self._update_render_progress(c, t))
+
+                out.write(img_resized)
+                rendered_count += 1
+                self.after(0, lambda c=rendered_count, t=total_frames_to_render: self._update_render_progress(c, t))
+                
+                prev_img = img_resized
                 
             out.release()
             
@@ -203,7 +218,6 @@ class QuickTimelapse(HeroSelect):
             self.after(0, lambda err=e: messagebox.showerror("Errore Rendering", f"Si è verificato un errore: {err}"))
         finally:
             self.after(0, lambda: self.btn_generate_video.configure(state="normal"))
-            self.after(0, lambda: self.btn_apply.configure(state="normal"))
             self.after(0, lambda: self.progress_label.configure(text="Pronto"))
             self.after(0, lambda: self.progress_bar.set(0))
 
