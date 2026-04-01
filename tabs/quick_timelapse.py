@@ -151,16 +151,28 @@ class QuickTimelapse(HeroSelect):
 
     def _video_generation_thread(self, duration: float, fps: float):
         try:
-            # 1. Recupero TUTTI i file immagine dalla cartella (ordinati per nome)
-            all_files = sorted([
-                f for f in os.listdir(self.source_dir)
-                if os.path.splitext(f)[1].lower() in [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
-            ])
+            # 1. Recupero i file dal database ordinati per data EXIF (date_taken)
+            if not self.logic:
+                self.logic = HeroSelectLogic(self.source_dir)
+            
+            with sqlite3.connect(self.logic.db_path) as conn:
+                cursor = conn.cursor()
+                # Selezioniamo solo i file che esistono fisicamente e hanno una data
+                cursor.execute("SELECT filename FROM photos ORDER BY date_taken ASC")
+                all_files = [row[0] for row in cursor.fetchall()]
 
             N = len(all_files)
             if N == 0:
-                self.after(0, lambda: messagebox.showwarning("Attenzione", "Nessuna foto trovata nella cartella sorgente."))
-                return
+                # Fallback se il database è vuoto (magari la scansione non è finita)
+                # Recuperiamo i file e li ordiniamo per nome come ultima risorsa
+                all_files = sorted([
+                    f for f in os.listdir(self.source_dir)
+                    if os.path.splitext(f)[1].lower() in [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
+                ])
+                N = len(all_files)
+                if N == 0:
+                    self.after(0, lambda: messagebox.showwarning("Attenzione", "Nessuna foto trovata nella cartella sorgente."))
+                    return
 
             # 2. Campionamento Matematico
             use_fade = self.check_fade.get() == 1
@@ -191,6 +203,9 @@ class QuickTimelapse(HeroSelect):
             for i, idx in enumerate(sampled_indices):
                 filename = all_files[idx]
                 filepath = os.path.join(self.source_dir, filename)
+                
+                if not os.path.exists(filepath):
+                    continue
                 
                 img = cv2.imread(filepath)
                 if img is None:
