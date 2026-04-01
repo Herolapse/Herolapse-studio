@@ -23,74 +23,74 @@ class QuickTimelapse(HeroSelect):
         # Chiamiamo il setup UI di base (quello di HeroSelect)
         super()._setup_ui()
 
-        # Modifichiamo il bottone "Copia Foto Filtrate" che non ci serve in questa tab
-        # o meglio, lo nascondiamo e aggiungiamo i controlli video.
+        # Rimuoviamo il bottone "Copia Foto Filtrate" che non ci serve in questa tab
         self.btn_copy.pack_forget()
 
-        # Pannello Controlli Video (aggiunto in fondo al left_panel)
-        # Recuperiamo il left_panel (sappiamo che è il primo figlio di self)
-        # In realtà è meglio ricostruire un po' il layout per inserire i nuovi controlli.
+        # Rimuoviamo la selezione della cartella di destinazione (inutile qui)
+        self.btn_dest.pack_forget()
+        self.lbl_dest.pack_forget()
+
+        # Inseriamo i controlli per l'output video nel left_panel
+        # Li mettiamo sotto la sorgente per coerenza
+        self.lbl_output_title = ctk.CTkLabel(
+            self.left_panel,
+            text="Output Video",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        self.lbl_output_title.pack(pady=(10, 5), after=self.lbl_source)
         
-        # Cerchiamo il left_panel tra i figli
-        left_panel = None
-        for child in self.winfo_children():
-            if isinstance(child, ctk.CTkFrame) and child.grid_info().get("column") == 0:
-                left_panel = child
-                break
+        self.btn_video_dest = ctk.CTkButton(
+            self.left_panel, text="Scegli Destinazione Video", command=self.select_video_dest
+        )
+        # Lo packiamo dopo il titolo output
+        self.btn_video_dest.pack(pady=5, fill="x", padx=10, after=self.lbl_output_title)
         
-        if left_panel:
-            # Rimuoviamo la progress bar e label vecchie per riposizionarle sotto i nuovi controlli
-            self.progress_bar.pack_forget()
-            self.progress_label.pack_forget()
+        self.lbl_video_dest = ctk.CTkLabel(
+            self.left_panel,
+            text="Nessun file selezionato",
+            font=ctk.CTkFont(size=10),
+            wraplength=200,
+        )
+        self.lbl_video_dest.pack(pady=2, after=self.btn_video_dest)
 
-            ctk.CTkLabel(
-                left_panel,
-                text="Output Video",
-                font=ctk.CTkFont(size=16, weight="bold"),
-            ).pack(pady=(20, 10))
+        # Durata e FPS (li mettiamo nel left_panel, sopra la progress bar)
+        self.settings_frame = ctk.CTkFrame(self.left_panel, fg_color="transparent")
+        self.settings_frame.pack(pady=10, fill="x", padx=5, before=self.progress_label)
 
-            self.btn_video_dest = ctk.CTkButton(
-                left_panel, text="Scegli Destinazione Video", command=self.select_video_dest
-            )
-            self.btn_video_dest.pack(pady=5, fill="x", padx=10)
-            
-            self.lbl_video_dest = ctk.CTkLabel(
-                left_panel,
-                text="Nessun file selezionato",
-                font=ctk.CTkFont(size=10),
-                wraplength=200,
-            )
-            self.lbl_video_dest.pack(pady=2)
+        # Centriamo il contenuto della griglia
+        self.settings_frame.grid_columnconfigure((0, 5), weight=1)
 
-            # Durata e FPS
-            settings_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
-            settings_frame.pack(pady=5, fill="x", padx=10)
-            
-            ctk.CTkLabel(settings_frame, text="Durata (s):", font=ctk.CTkFont(size=12)).grid(row=0, column=0, sticky="w")
-            self.entry_duration = ctk.CTkEntry(settings_frame, width=60)
-            self.entry_duration.insert(0, "10")
-            self.entry_duration.grid(row=0, column=1, padx=5, pady=2)
+        ctk.CTkLabel(self.settings_frame, text="Durata (s):", font=ctk.CTkFont(size=11)).grid(row=0, column=1, padx=(2, 2), pady=2)
+        self.entry_duration = ctk.CTkEntry(self.settings_frame, width=45)
+        self.entry_duration.insert(0, "10")
+        self.entry_duration.grid(row=0, column=2, padx=(0, 10), pady=2)
 
-            ctk.CTkLabel(settings_frame, text="FPS:", font=ctk.CTkFont(size=12)).grid(row=1, column=0, sticky="w")
-            self.combo_fps = ctk.CTkComboBox(settings_frame, values=["24", "25", "30", "60"], width=70)
-            self.combo_fps.set("30")
-            self.combo_fps.grid(row=1, column=1, padx=5, pady=2)
+        ctk.CTkLabel(self.settings_frame, text="FPS:", font=ctk.CTkFont(size=11)).grid(row=0, column=3, padx=(2, 2), pady=2)
+        self.combo_fps = ctk.CTkComboBox(self.settings_frame, values=["24", "25", "30", "60"], width=65)
+        self.combo_fps.set("30")
+        self.combo_fps.grid(row=0, column=4, padx=(0, 2), pady=2)
 
-            # Bottone Genera
-            self.btn_generate_video = ctk.CTkButton(
-                left_panel,
-                text="Genera Timelapse Video",
-                command=self.start_video_generation,
-                fg_color="orange",
-                text_color="black",
-                font=ctk.CTkFont(weight="bold"),
-                state="disabled"
-            )
-            self.btn_generate_video.pack(pady=10, fill="x", padx=10)
+        # Bottone Genera (nel right_panel, sotto Applica Filtri)
+        self.btn_generate_video = ctk.CTkButton(
+            self.right_panel,
+            text="Genera Timelapse Video",
+            command=self.start_video_generation,
+            fg_color="orange",
+            text_color="black",
+            font=ctk.CTkFont(weight="bold"),
+            state="disabled",
+            height=50
+        )
+        # Pack side="bottom" mette l'elemento in fondo. 
+        # Dato che btn_apply è già packed con side="bottom", 
+        # se packiamo btn_generate_video ORA con side="bottom", andrà SOTTO btn_apply?
+        # In realtà andrà sopra se btn_apply è già lì.
+        # Per averlo SOTTO, dobbiamo pack_forget btn_apply e poi packarli nell'ordine inverso.
+        
+        self.btn_apply.pack_forget()
+        self.btn_generate_video.pack(side="bottom", pady=10, fill="x", padx=20)
+        self.btn_apply.pack(side="bottom", pady=5, fill="x", padx=20)
 
-            # Riposizioniamo progress bar e label
-            self.progress_label.pack(side="bottom", pady=(5, 0))
-            self.progress_bar.pack(side="bottom", pady=10, fill="x", padx=10)
 
     def select_video_dest(self):
         path = filedialog.asksaveasfilename(

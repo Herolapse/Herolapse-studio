@@ -39,21 +39,21 @@ class HeroSelect(ctk.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
 
         # Colonna Sinistra: Filtri
-        left_panel = ctk.CTkFrame(self, corner_radius=0)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.left_panel = ctk.CTkFrame(self, corner_radius=0)
+        self.left_panel.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
         ctk.CTkLabel(
-            left_panel,
+            self.left_panel,
             text="Configurazione Filtri",
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(pady=10)
 
         self.btn_source = ctk.CTkButton(
-            left_panel, text="Sorgente", command=self.select_source
+            self.left_panel, text="Sorgente", command=self.select_source
         )
         self.btn_source.pack(pady=5, fill="x", padx=10)
         self.lbl_source = ctk.CTkLabel(
-            left_panel,
+            self.left_panel,
             text="Nessuna cartella",
             font=ctk.CTkFont(size=10),
             wraplength=200,
@@ -61,11 +61,11 @@ class HeroSelect(ctk.CTkFrame):
         self.lbl_source.pack(pady=2)
 
         self.btn_dest = ctk.CTkButton(
-            left_panel, text="Destinazione", command=self.select_dest
+            self.left_panel, text="Destinazione", command=self.select_dest
         )
         self.btn_dest.pack(pady=5, fill="x", padx=10)
         self.lbl_dest = ctk.CTkLabel(
-            left_panel,
+            self.left_panel,
             text="Nessuna cartella",
             font=ctk.CTkFont(size=10),
             wraplength=200,
@@ -73,32 +73,32 @@ class HeroSelect(ctk.CTkFrame):
         self.lbl_dest.pack(pady=2)
 
         ctk.CTkLabel(
-            left_panel, text="Date (YYYY-MM-DD)", font=ctk.CTkFont(weight="bold")
+            self.left_panel, text="Date (YYYY-MM-DD)", font=ctk.CTkFont(weight="bold")
         ).pack(pady=(10, 0))
-        self.entry_start_date = ctk.CTkEntry(left_panel)
+        self.entry_start_date = ctk.CTkEntry(self.left_panel)
         self.entry_start_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
         self.entry_start_date.pack(pady=2, fill="x", padx=10)
-        self.entry_end_date = ctk.CTkEntry(left_panel)
+        self.entry_end_date = ctk.CTkEntry(self.left_panel)
         self.entry_end_date.insert(0, datetime.now().strftime("%Y-%m-%d"))
         self.entry_end_date.pack(pady=2, fill="x", padx=10)
 
         ctk.CTkLabel(
-            left_panel, text="Orari (HH:MM)", font=ctk.CTkFont(weight="bold")
+            self.left_panel, text="Orari (HH:MM)", font=ctk.CTkFont(weight="bold")
         ).pack(pady=(10, 0))
-        self.entry_start_time = ctk.CTkEntry(left_panel)
+        self.entry_start_time = ctk.CTkEntry(self.left_panel)
         self.entry_start_time.insert(0, "08:00")
         self.entry_start_time.pack(pady=2, fill="x", padx=10)
-        self.entry_end_time = ctk.CTkEntry(left_panel)
+        self.entry_end_time = ctk.CTkEntry(self.left_panel)
         self.entry_end_time.insert(0, "18:00")
         self.entry_end_time.pack(pady=2, fill="x", padx=10)
 
         # Giorni della Settimana
         ctk.CTkLabel(
-            left_panel, text="Giorni della Settimana", font=ctk.CTkFont(weight="bold")
+            self.left_panel, text="Giorni della Settimana", font=ctk.CTkFont(weight="bold")
         ).pack(pady=(10, 0))
         self.days_vars = []
         days_names = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
-        days_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
+        days_frame = ctk.CTkFrame(self.left_panel, fg_color="transparent")
         days_frame.pack(pady=5, fill="x")
         for i in range(len(days_names)):
             days_frame.grid_columnconfigure(i, weight=1)
@@ -118,17 +118,17 @@ class HeroSelect(ctk.CTkFrame):
 
         # --- SEZIONE EV100 ---
         ctk.CTkLabel(
-            left_panel,
+            self.left_panel,
             text="Filtro Esposizione (EV100)",
             font=ctk.CTkFont(weight="bold"),
         ).pack(pady=(15, 0))
         self.lbl_ev_detected = ctk.CTkLabel(
-            left_panel,
+            self.left_panel,
             text="Range rilevato: --",
             font=ctk.CTkFont(size=11, slant="italic"),
         )
         self.lbl_ev_detected.pack()
-        ev_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
+        ev_frame = ctk.CTkFrame(self.left_panel, fg_color="transparent")
         ev_frame.pack(pady=5)
         self.entry_min_ev = ctk.CTkEntry(ev_frame, placeholder_text="Min", width=60)
         self.entry_min_ev.insert(0, "-20.0")
@@ -140,14 +140,14 @@ class HeroSelect(ctk.CTkFrame):
 
         # --- SEZIONE CONTROLLO QUALITÀ ---
         ctk.CTkLabel(
-            left_panel, text="Controllo Qualità", font=ctk.CTkFont(weight="bold")
+            self.left_panel, text="Controllo Qualità", font=ctk.CTkFont(weight="bold")
         ).pack(pady=(15, 0))
         self.check_blur = ctk.CTkCheckBox(
-            left_panel, text="Escludi foto sfocate/nebbia"
+            self.left_panel, text="Escludi foto sfocate/nebbia"
         )
         self.check_blur.select()
         self.check_blur.pack(pady=5, padx=10, anchor="w")
-        blur_frame = ctk.CTkFrame(left_panel, fg_color="transparent")
+        blur_frame = ctk.CTkFrame(self.left_panel, fg_color="transparent")
         blur_frame.pack(pady=2, fill="x", padx=10)
         ctk.CTkLabel(
             blur_frame, text="Soglia Nitidezza:", font=ctk.CTkFont(size=11)
@@ -155,24 +155,24 @@ class HeroSelect(ctk.CTkFrame):
         self.entry_sharpness = ctk.CTkEntry(blur_frame, width=70)
         self.entry_sharpness.pack(side="right")
         self.lbl_sharpness_info = ctk.CTkLabel(
-            left_panel,
+            self.left_panel,
             text="Media dataset: -- | Consigliata: --",
             font=ctk.CTkFont(size=10, slant="italic"),
         )
         self.lbl_sharpness_info.pack(pady=2)
 
         # Progress Section
-        self.progress_label = ctk.CTkLabel(left_panel, text="Pronto")
+        self.progress_label = ctk.CTkLabel(self.left_panel, text="Pronto")
         self.progress_label.pack(side="bottom", pady=(5, 0))
-        self.progress_bar = ctk.CTkProgressBar(left_panel)
+        self.progress_bar = ctk.CTkProgressBar(self.left_panel)
         self.progress_bar.set(0)
         self.progress_bar.pack(side="bottom", pady=10, fill="x", padx=10)
 
         # Colonna Destra: Griglia Anteprime
-        right_panel = ctk.CTkFrame(self)
-        right_panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        self.right_panel = ctk.CTkFrame(self)
+        self.right_panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
-        self.scroll_frame = ctk.CTkScrollableFrame(right_panel)
+        self.scroll_frame = ctk.CTkScrollableFrame(self.right_panel)
         self.scroll_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
         # Configurazione colonne griglia (impostate a 2 per gestire immagini larghe mantenendo l'aspect ratio)
@@ -181,7 +181,7 @@ class HeroSelect(ctk.CTkFrame):
             self.scroll_frame.grid_columnconfigure(i, weight=1)
 
         # Pagination Controls
-        self.page_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
+        self.page_frame = ctk.CTkFrame(self.right_panel, fg_color="transparent")
         self.page_frame.pack(pady=5, fill="x")
 
         self.btn_prev = ctk.CTkButton(
@@ -208,7 +208,7 @@ class HeroSelect(ctk.CTkFrame):
         self.btn_next.pack(side="right", padx=20)
 
         self.btn_copy = ctk.CTkButton(
-            right_panel,
+            self.right_panel,
             text="Copia Foto Filtrate",
             command=self.start_copy,
             state="disabled",
@@ -217,7 +217,7 @@ class HeroSelect(ctk.CTkFrame):
         self.btn_copy.pack(side="bottom", pady=10, fill="x", padx=20)
 
         self.btn_apply = ctk.CTkButton(
-            right_panel,
+            self.right_panel,
             text="Applica Filtri",
             command=self.apply_filters,
             fg_color="green",
@@ -225,11 +225,12 @@ class HeroSelect(ctk.CTkFrame):
         self.btn_apply.pack(side="bottom", pady=5, fill="x", padx=20)
 
         self.lbl_count = ctk.CTkLabel(
-            right_panel,
+            self.right_panel,
             text="Foto filtrate: 0 / 0",
             font=ctk.CTkFont(size=14, weight="bold"),
         )
         self.lbl_count.pack(side="bottom", pady=5)
+
 
     def select_source(self):
         path = filedialog.askdirectory()
@@ -520,17 +521,14 @@ class HeroSelectLogic:
                         shutter REAL,
                         ev100 REAL,
                         sharpness_score REAL,
-                        thumbnail BLOB,
-                        homography_matrix TEXT
+                        thumbnail BLOB
                     )
                 """)
-                # Verifica se la colonna thumbnail e homography_matrix esistono (per migrazione DB esistenti)
+                # Verifica se la colonna thumbnail esiste (per migrazione DB esistenti)
                 cursor.execute("PRAGMA table_info(photos)")
                 columns = [column[1] for column in cursor.fetchall()]
                 if "thumbnail" not in columns:
                     cursor.execute("ALTER TABLE photos ADD COLUMN thumbnail BLOB")
-                if "homography_matrix" not in columns:
-                    cursor.execute("ALTER TABLE photos ADD COLUMN homography_matrix TEXT")
 
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_date ON photos(date_taken)"
@@ -600,11 +598,10 @@ class HeroSelectLogic:
         Optional[float],
         float,
         bytes,
-        Optional[str],
     ]:
         """Estrae EXIF, Sharpness e Thumbnail per un file."""
         filepath = os.path.join(self.source_dir, filename)
-        res = [filename, None, None, None, None, None, 0.0, b"", None]
+        res = [filename, None, None, None, None, None, 0.0, b""]
         try:
             # Calcolo Sharpness e Thumbnail
             res[6], res[7] = self.process_image_data(filepath)
@@ -683,7 +680,7 @@ class HeroSelectLogic:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.executemany(
-                    "INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     data,
                 )
                 conn.commit()
