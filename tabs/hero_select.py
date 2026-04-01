@@ -457,10 +457,44 @@ class HeroSelect(ctk.CTkFrame):
                 0, lambda: self.progress_label.configure(text=f"Copia: {curr}/{total}")
             )
 
-        filenames = [x[0] for x in self.filtered_images]
-        self.logic.copy_files(filenames, self.dest_dir, update_ui)
-        self.after(0, lambda: messagebox.showinfo("Fine", "Copia completata"))
-        self.after(0, lambda: self.btn_copy.configure(state="normal"))
+        # Recupero parametri filtri
+        try:
+            start_date = datetime.strptime(self.entry_start_date.get(), "%Y-%m-%d")
+            end_date = datetime.strptime(self.entry_end_date.get(), "%Y-%m-%d")
+            allowed_days = [i for i, v in enumerate(self.days_vars) if v.get() == 1]
+            try:
+                min_ev = float(self.entry_min_ev.get())
+                max_ev = float(self.entry_max_ev.get())
+            except ValueError:
+                min_ev, max_ev = -100.0, 100.0
+            exclude_blur = self.check_blur.get() == 1
+            try:
+                sharp_thresh = float(self.entry_sharpness.get())
+            except ValueError:
+                sharp_thresh = 0.0
+
+            # Otteniamo TUTTI i nomi file filtrati (senza limite di pagina)
+            all_filtered = self.logic.filter_images(
+                start_date,
+                end_date,
+                self.entry_start_time.get(),
+                self.entry_end_time.get(),
+                allowed_days,
+                min_ev,
+                max_ev,
+                exclude_blur,
+                sharp_thresh,
+                limit=self.total_filtered,
+                offset=0
+            )
+            
+            filenames = [x[0] for x in all_filtered]
+            self.logic.copy_files(filenames, self.dest_dir, update_ui)
+            self.after(0, lambda: messagebox.showinfo("Fine", "Copia completata"))
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Errore", f"Errore durante la copia: {e}"))
+        finally:
+            self.after(0, lambda: self.btn_copy.configure(state="normal"))
 
 
 class HeroSelectLogic:
@@ -486,14 +520,17 @@ class HeroSelectLogic:
                         shutter REAL,
                         ev100 REAL,
                         sharpness_score REAL,
-                        thumbnail BLOB
+                        thumbnail BLOB,
+                        homography_matrix TEXT
                     )
                 """)
-                # Verifica se la colonna thumbnail esiste (per migrazione DB esistenti)
+                # Verifica se la colonna thumbnail e homography_matrix esistono (per migrazione DB esistenti)
                 cursor.execute("PRAGMA table_info(photos)")
                 columns = [column[1] for column in cursor.fetchall()]
                 if "thumbnail" not in columns:
                     cursor.execute("ALTER TABLE photos ADD COLUMN thumbnail BLOB")
+                if "homography_matrix" not in columns:
+                    cursor.execute("ALTER TABLE photos ADD COLUMN homography_matrix TEXT")
 
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_date ON photos(date_taken)"
@@ -563,10 +600,11 @@ class HeroSelectLogic:
         Optional[float],
         float,
         bytes,
+        Optional[str],
     ]:
         """Estrae EXIF, Sharpness e Thumbnail per un file."""
         filepath = os.path.join(self.source_dir, filename)
-        res = [filename, None, None, None, None, None, 0.0, b""]
+        res = [filename, None, None, None, None, None, 0.0, b"", None]
         try:
             # Calcolo Sharpness e Thumbnail
             res[6], res[7] = self.process_image_data(filepath)
@@ -645,7 +683,7 @@ class HeroSelectLogic:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.executemany(
-                    "INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO photos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     data,
                 )
                 conn.commit()
