@@ -11,7 +11,7 @@ The core engine of the app. It allows you to scan massive directories of images 
 *   **Time & Date:** Select specific date ranges, hours of the day, or even specific days of the week (e.g., "Mondays to Fridays only").
 *   **Exposure Control (EV100):** Automatically detects the exposure range and lets you filter out photos that are too dark or too bright.
 *   **Quality Control:** Uses Laplacian variance to detect and exclude blurry photos or images affected by heavy fog/haze.
-*   **Visual Preview:** High-performance thumbnail grid with pagination to review your selection before copying.
+*   **Visual Preview:** High-performance thumbnail grid with pagination to review your selection before calling for action.
 
 ### 2. TimeStamper (Watermark Tool)
 Automate the process of stamping information onto your photos:
@@ -23,11 +23,18 @@ Prepares your filtered images for a seamless "Image Sequence" import in Adobe Pr
 *   **Numerical Ordering:** Renames files into a continuous numerical sequence (e.g., `hero_0001.jpg`, `hero_0002.jpg`).
 *   **Custom Prefixes:** Define your project name as a prefix for better organization.
 
+### 4. Quick Timelapse (Video Generator)
+A dedicated rendering engine to quickly create high-quality video previews from your filtered photos:
+*   **Fast Rendering:** Uses OpenCV to compile images into a `.mp4` video directly.
+*   **Chronological Ordering:** Automatically sorts photos by EXIF `date_taken` metadata to ensure a perfect timeline.
+*   **Anti-Flicker (Fade):** Optional frame interpolation with 50% opacity blending to eliminate flickering and ensure smooth transitions.
+*   **Customizable Settings:** Set the desired duration (seconds) and frame rate (FPS) for the final output.
+
 ---
 
 ## 🛠 Tech Stack
 *   **UI Framework:** [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) (Modern Dark Theme).
-*   **Image Processing:** Pillow (PIL).
+*   **Image & Video Processing:** OpenCV (cv2), Pillow (PIL).
 *   **Database:** SQLite (used for high-speed metadata indexing).
 *   **Packaging:** PyInstaller (with Docker/Wine for cross-platform builds).
 
@@ -72,6 +79,6 @@ make build-linux
 
 ## 📂 Project Structure
 *   `main.py`: The entry point and UI logic.
-*   `tabs/`: Package containing UI frames and logic for each feature (Hero Select, TimeStamper, Sequence Builder).
+*   `tabs/`: Package containing UI frames and logic for each feature (Hero Select, TimeStamper, Sequence Builder, Quick Timelapse).
 *   `assets/`: Icons and branding resources.
 *   `Makefile`: Build automation scripts.
