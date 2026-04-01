@@ -1,12 +1,18 @@
 import threading
+import io
 import os
+from datetime import datetime
+from PIL import Image
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import sqlite3
 import cv2
+import numpy as np
+import time
+from typing import List, Tuple, Callable, Optional, Any
 
 
-# Patch per evitare crash in ambienti dove OpenCV GUI non è implementata (es. NixOS, Headless)
+# Patch per evitare crash in ambienti senza supporto GUI (NixOS, Headless)
 # VidStab a volte chiama cv2.destroyAllWindows() internamente.
 def _patch_opencv_gui():
     def noop(*args, **kwargs):
@@ -34,7 +40,7 @@ except ImportError:
 
 
 class QuickTimelapse(HeroSelect):
-    """Generazione rapida di timelapse video con opzione di stabilizzazione."""
+    """Tab 4: Generazione rapida di timelapse video dai dati filtrati."""
 
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
@@ -70,7 +76,7 @@ class QuickTimelapse(HeroSelect):
                 isinstance(widget, ctk.CTkLabel)
                 and widget.cget("text") == "Configurazione Filtri"
             ):
-                widget.configure(text="Parametri Video")
+                widget.configure(text="Configurazione Video")
                 continue
             widget.pack_forget()
 
@@ -127,7 +133,7 @@ class QuickTimelapse(HeroSelect):
         self.check_fade.select()
         self.check_fade.grid(row=1, column=1, columnspan=4, pady=(5, 0))
 
-        # Checkbox Stabilizzazione (Novità)
+        # Checkbox Stabilizzazione
         self.check_stabilize = ctk.CTkCheckBox(
             self.settings_frame,
             text="Stabilizza Video (VidStab)",
@@ -140,7 +146,7 @@ class QuickTimelapse(HeroSelect):
         self.progress_label.pack(side="bottom", pady=(5, 0))
         self.progress_bar.pack(side="bottom", pady=10, fill="x", padx=10)
 
-        # Pulizia colonna destra: solo il bottone genera
+        # Pulizia colonna destra
         self.scroll_frame.pack_forget()
         self.page_frame.pack_forget()
         self.lbl_count.pack_forget()
@@ -148,7 +154,7 @@ class QuickTimelapse(HeroSelect):
 
         self.btn_generate_video = ctk.CTkButton(
             self.right_panel,
-            text="Avvia render",
+            text="Genera Timelapse",
             command=self.start_video_generation,
             fg_color="orange",
             text_color="black",
@@ -170,7 +176,6 @@ class QuickTimelapse(HeroSelect):
             self._check_ready_to_generate()
 
     def _load_current_page(self):
-        # Disabilitiamo anteprime per velocità
         self._check_ready_to_generate()
 
     def _check_ready_to_generate(self):
@@ -182,16 +187,14 @@ class QuickTimelapse(HeroSelect):
     def start_video_generation(self):
         if not self.video_dest_path or not self.source_dir:
             return
-
         try:
             duration = float(self.entry_duration.get())
             fps = float(self.combo_fps.get())
         except ValueError:
-            messagebox.showerror("Errore", "Durata e FPS devono essere numeri validi.")
+            messagebox.showerror("Errore", "Dati non validi.")
             return
 
         self.btn_generate_video.configure(state="disabled")
-
         threading.Thread(
             target=self._video_generation_thread, args=(duration, fps), daemon=True
         ).start()
@@ -199,7 +202,7 @@ class QuickTimelapse(HeroSelect):
     def _video_generation_thread(self, duration: float, fps: float):
         temp_unstable = "temp_unstable.mp4"
         try:
-            # 1. Recupero i file dal database ordinati per data EXIF (date_taken)
+            # 1. Recupero i file dal database ordinati per data EXIF
             if not self.logic:
                 self.logic = HeroSelectLogic(self.source_dir)
 
@@ -210,27 +213,22 @@ class QuickTimelapse(HeroSelect):
 
             N = len(all_files)
             if N == 0:
-                # Fallback alfabetico
                 all_files = sorted(
                     [
                         f
                         for f in os.listdir(self.source_dir)
-                        if os.path.splitext(f)[1].lower()
-                        in [".jpg", ".jpeg", ".png", ".tiff", ".bmp"]
+                        if f.lower().endswith(
+                            (".jpg", ".jpeg", ".png", ".tiff", ".bmp")
+                        )
                     ]
                 )
                 N = len(all_files)
                 if N == 0:
-                    self.after(
-                        0,
-                        lambda: messagebox.showwarning(
-                            "Attenzione", "Nessuna foto trovata."
-                        ),
-                    )
                     return
 
             # 2. Campionamento Matematico
             use_fade = self.check_fade.get() == 1
+            should_stabilize = self.check_stabilize.get() == 1
             K = int(duration * fps)
 
             if use_fade:
@@ -243,127 +241,71 @@ class QuickTimelapse(HeroSelect):
                     if N > 1
                     else [0]
                 )
-                total_frames_to_render = max(0, 2 * len(sampled_indices) - 1)
+                total_frames = max(0, 2 * len(sampled_indices) - 1)
             else:
                 sampled_indices = (
                     [round(i * (N - 1) / (max(1, K - 1))) for i in range(min(N, K))]
                     if N > 1
                     else [0]
                 )
-                total_frames_to_render = len(sampled_indices)
+                total_frames = len(sampled_indices)
 
-            # 3. Step 1: Generazione Video Grezzo (Temporaneo)
-            # Se la stabilizzazione è OFF, scriviamo direttamente sul file finale
-            should_stabilize = self.check_stabilize.get() == 1
+            # 3. Step 1: Generazione Video
             render_path = temp_unstable if should_stabilize else self.video_dest_path
-
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            out = cv2.VideoWriter(render_path, fourcc, fps, (1920, 1080))
+            out = cv2.VideoWriter(
+                render_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (1920, 1080)
+            )
 
             prev_img = None
-            rendered_count = 0
-
+            count = 0
             for idx in sampled_indices:
-                filename = all_files[idx]
-                filepath = os.path.join(self.source_dir, filename)
-
-                if not os.path.exists(filepath):
-                    continue
-                img = cv2.imread(filepath)
+                img = cv2.imread(os.path.join(self.source_dir, all_files[idx]))
                 if img is None:
                     continue
-
-                img_resized = cv2.resize(
+                img_res = cv2.resize(
                     img, (1920, 1080), interpolation=cv2.INTER_LANCZOS4
                 )
 
                 if use_fade and prev_img is not None:
-                    fade_img = cv2.addWeighted(prev_img, 0.5, img_resized, 0.5, 0)
-                    out.write(fade_img)
-                    rendered_count += 1
-                    # Progress logic (Step 1 occupa il primo 50% se stabilizziamo, altrimenti 100%)
-                    progress = (rendered_count / total_frames_to_render) * (
-                        0.5 if should_stabilize else 1.0
-                    )
+                    out.write(cv2.addWeighted(prev_img, 0.5, img_res, 0.5, 0))
+                    count += 1
                     self.after(
-                        0,
-                        lambda p=progress: self._update_render_progress_val(
-                            p, "Rendering Frame..."
-                        ),
+                        0, lambda c=count: self.progress_bar.set(c / total_frames)
                     )
 
-                out.write(img_resized)
-                rendered_count += 1
-                progress = (rendered_count / total_frames_to_render) * (
-                    0.5 if should_stabilize else 1.0
-                )
-                self.after(
-                    0,
-                    lambda p=progress: self._update_render_progress_val(
-                        p, "Rendering Frame..."
-                    ),
-                )
-
-                prev_img = img_resized
+                out.write(img_res)
+                count += 1
+                self.after(0, lambda c=count: self.progress_bar.set(c / total_frames))
+                prev_img = img_res
 
             out.release()
 
-            # 4. Step 2: Stabilizzazione (se richiesta)
-            if should_stabilize:
-                if VidStab is None:
-                    self.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Errore", "Libreria 'vidstab' non installata."
-                        ),
-                    )
-                else:
-                    self.after(
-                        0,
-                        lambda: self._update_render_progress_val(
-                            0.6, "Stabilizzazione in corso (Step 2/2)..."
-                        ),
-                    )
-                    stabilizer = VidStab()
-                    stabilizer.stabilize(
-                        input_path=temp_unstable,
-                        output_path=self.video_dest_path,
-                        smoothing_window=30,
-                        border_type="reflect",
-                    )
-                    self.after(
-                        0,
-                        lambda: self._update_render_progress_val(
-                            1.0, "Stabilizzazione Completata!"
-                        ),
-                    )
+            # Delay per Windows lock
+            time.sleep(0.5)
 
-            # 5. Pulizia
-            if os.path.exists(temp_unstable):
-                os.remove(temp_unstable)
+            # 4. Step 2: Stabilizzazione
+            if should_stabilize and VidStab:
+                self.after(
+                    0, lambda: self.progress_label.configure(text="Stabilizzazione...")
+                )
+                stabilizer = VidStab()
+                stabilizer.stabilize(
+                    input_path=temp_unstable,
+                    output_path=self.video_dest_path,
+                    smoothing_window=30,
+                    border_type="reflect",
+                )
 
-            self.after(
-                0,
-                lambda: messagebox.showinfo(
-                    "Successo",
-                    f"Operazione completata!\nVideo salvato in: {self.video_dest_path}",
-                ),
-            )
-
+            self.after(0, lambda: messagebox.showinfo("Successo", "Video generato!"))
         except Exception as e:
-            self.after(
-                0,
-                lambda err=e: messagebox.showerror(
-                    "Errore", f"Errore durante il processo: {err}"
-                ),
-            )
-            if os.path.exists(temp_unstable):
-                os.remove(temp_unstable)
+            self.after(0, lambda err=e: messagebox.showerror("Errore", str(err)))
         finally:
+            if os.path.exists(temp_unstable):
+                time.sleep(0.5)
+                try:
+                    os.remove(temp_unstable)
+                except:
+                    pass
             self.after(0, lambda: self.btn_generate_video.configure(state="normal"))
             self.after(0, lambda: self.progress_label.configure(text="Pronto"))
             self.after(0, lambda: self.progress_bar.set(0))
-
-    def _update_render_progress_val(self, val, text):
-        self.progress_bar.set(val)
-        self.progress_label.configure(text=text)
