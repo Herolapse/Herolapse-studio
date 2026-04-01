@@ -2,7 +2,7 @@ import os
 import sys
 from PIL import Image, ImageTk
 import customtkinter as ctk
-from tabs import HeroSelect, TimeStamper, SequenceBuilder
+from tabs import HeroSelect, TimeStamper, SequenceBuilder, QuickTimelapse
 
 
 def resource_path(relative_path):
@@ -42,6 +42,7 @@ class HerolapseStudio(ctk.CTk):
         self.tab_view.add("Hero Select")
         self.tab_view.add("TimeStamper")
         self.tab_view.add("Sequence Builder")
+        self.tab_view.add("Quick Timelapse")
 
         # Inserimento dei frame nelle Tab
         self.filter_frame = HeroSelect(self.tab_view.tab("Hero Select"))
@@ -52,6 +53,9 @@ class HerolapseStudio(ctk.CTk):
 
         self.renamer_frame = SequenceBuilder(self.tab_view.tab("Sequence Builder"))
         self.renamer_frame.pack(fill="both", expand=True)
+
+        self.quick_timelapse_frame = QuickTimelapse(self.tab_view.tab("Quick Timelapse"))
+        self.quick_timelapse_frame.pack(fill="both", expand=True)
 
 
 ctk.set_appearance_mode("Dark")
