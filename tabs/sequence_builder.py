@@ -49,6 +49,7 @@ class SequenceBuilder(ctk.CTkFrame):
 
         folder_frame_out = ctk.CTkFrame(self, fg_color="transparent")
         folder_frame_out.pack(pady=10, fill="x", padx=40)
+        self.folder_frame_out = folder_frame_out
 
         self.btn_out = ctk.CTkButton(
             folder_frame_out,
@@ -62,6 +63,17 @@ class SequenceBuilder(ctk.CTkFrame):
             font=ctk.CTkFont(size=12, slant="italic"),
         )
         self.lbl_out.pack(pady=10)
+
+        # Operazione in loco
+        self.in_place_var = ctk.BooleanVar(value=False)
+        self.check_in_place = ctk.CTkCheckBox(
+            self, 
+            text="Operazione in loco (Rinomina file originali)", 
+            variable=self.in_place_var,
+            command=self._toggle_in_place,
+            font=ctk.CTkFont(weight="bold")
+        )
+        self.check_in_place.pack(pady=10)
 
         # Prefisso File
         prefix_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -121,11 +133,69 @@ class SequenceBuilder(ctk.CTkFrame):
             self.output_dir = path
             self.lbl_out.configure(text=path)
 
+    def _toggle_in_place(self):
+        if self.in_place_var.get():
+            self.folder_frame_out.pack_forget()
+        else:
+            # Ripristina la posizione originale rimpaccandolo prima del prefisso
+            # Ma pack non ha "before", quindi usiamo un approccio semplice rimpaccando tutto
+            # O meglio, pack_forget e pack in ordine.
+            self.folder_frame_out.pack(pady=10, fill="x", padx=40, after=self.lbl_in.master) 
+            # In CustomTkinter pack order matters. Let's just re-pack in order if needed
+            # For simplicity, I'll just keep it packed and use pack_forget/pack.
+            pass
+        self._refresh_layout()
+
+    def _refresh_layout(self):
+        # Per mantenere l'ordine corretto rimpacchiamo gli elementi
+        for widget in self.winfo_children():
+            widget.pack_forget()
+        
+        # Redraw in order (Recupero l'ordine logico)
+        # 1. Label Titolo
+        for widget in self.winfo_children():
+            if isinstance(widget, ctk.CTkLabel) and "Rinomina" in widget.cget("text"):
+                widget.pack(pady=20)
+                break
+        
+        # 2. Folder Input
+        for widget in self.winfo_children():
+            if hasattr(widget, "winfo_children") and any(isinstance(c, ctk.CTkButton) and "Sorgente" not in c.cget("text") and "Input" in c.cget("text") for c in widget.winfo_children()):
+                widget.pack(pady=10, fill="x", padx=40)
+                break
+        
+        # 3. Folder Output (solo se non in loco)
+        if not self.in_place_var.get():
+            self.folder_frame_out.pack(pady=10, fill="x", padx=40)
+        
+        # 4. Checkbox In Place
+        self.check_in_place.pack(pady=10)
+        
+        # 5. Prefix Frame
+        for widget in self.winfo_children():
+            if isinstance(widget, ctk.CTkFrame) and widget != self.folder_frame_out and not hasattr(widget, "btn_in") and any(isinstance(c, ctk.CTkEntry) for c in widget.winfo_children()):
+                widget.pack(pady=20)
+                break
+
+        # 6. Status e Progress
+        self.status_label.pack(pady=(20, 5))
+        self.progress_bar.pack(pady=10)
+        
+        # 7. Action Frame
+        for widget in self.winfo_children():
+            if isinstance(widget, ctk.CTkFrame) and any(isinstance(c, ctk.CTkButton) and "ESPORTAZIONE" in c.cget("text") for c in widget.winfo_children()):
+                widget.pack(pady=20)
+                break
+
     def start_export(self):
-        if not self.input_dir or not self.output_dir:
+        if not self.input_dir:
+            messagebox.showwarning("Dati mancanti", "Seleziona la cartella di input.")
+            return
+            
+        if not self.in_place_var.get() and not self.output_dir:
             messagebox.showwarning(
                 "Dati mancanti",
-                "Seleziona sia la cartella di input che quella di output.",
+                "Seleziona la cartella di output.",
             )
             return
 
@@ -150,8 +220,13 @@ class SequenceBuilder(ctk.CTkFrame):
             self.after(0, lambda: self.status_label.configure(text=f"{msg}"))
 
         try:
+            in_place = self.in_place_var.get()
+            dest = self.input_dir if in_place else self.output_dir
+            
             self.logic.process_renaming(
-                self.input_dir, self.output_dir, prefix, update_ui, stop_check=lambda: self.is_cancelled
+                self.input_dir, dest, prefix, update_ui, 
+                stop_check=lambda: self.is_cancelled,
+                in_place=in_place
             )
             if self.is_cancelled:
                 self.after(0, lambda: messagebox.showwarning("Annullato", "Operazione annullata."))
@@ -211,6 +286,7 @@ class SequenceBuilderLogic:
         prefix: str,
         progress_callback: Callable[[int, int, str], None],
         stop_check: Callable[[], bool] = lambda: False,
+        in_place: bool = False,
     ):
         """Scansiona, ordina e copia le immagini rinominandole in modo sequenziale."""
         if not os.path.exists(output_dir):
@@ -244,21 +320,38 @@ class SequenceBuilderLogic:
         image_data.sort(key=lambda x: x[1])
 
         # 3. Calcolo Padding Numerico
-        # Se abbiamo 1000 foto, servono 4 cifre (0001-1000).
-        # log10(1000) = 3, quindi floor(3) + 1 = 4.
         padding = len(str(total_files))
 
-        # 4. Copia e Rinominazione
+        # 4. Copia o Rinominazione
         for i, (src_path, _) in enumerate(image_data, start=1):
             if stop_check():
                 return
             ext = os.path.splitext(src_path)[1].lower()
-            # Esempio: timelapse_0001.jpg
-            new_filename = f"{prefix}_{i:0{padding}d}{ext}"
-            dst_path = os.path.join(output_dir, new_filename)
-
-            # Copia sicura mantenendo i metadati
-            shutil.copy2(src_path, dst_path)
+            
+            if in_place:
+                # Per evitare collisioni (es: rinominare file_1 in file_2 quando file_2 esiste ancora)
+                # usiamo un prefisso temporaneo univoco.
+                temp_filename = f"TMP_RENAME_{i:0{padding}d}_{os.path.basename(src_path)}"
+                temp_path = os.path.join(output_dir, temp_filename)
+                os.rename(src_path, temp_path)
+                image_data[i-1] = (temp_path, None) # Aggiorniamo il path per il secondo step
+            else:
+                new_filename = f"{prefix}_{i:0{padding}d}{ext}"
+                dst_path = os.path.join(output_dir, new_filename)
+                shutil.copy2(src_path, dst_path)
 
             if i % 10 == 0 or i == total_files:
-                progress_callback(i, total_files, f"Copia in corso: {i}/{total_files}")
+                msg = "Rinominazione temporanea..." if in_place else "Copia in corso..."
+                progress_callback(i, total_files, f"{msg}: {i}/{total_files}")
+
+        if in_place:
+            # Secondo passaggio per rimuovere il prefisso temporaneo
+            for i, (tmp_path, _) in enumerate(image_data, start=1):
+                if stop_check(): return
+                ext = os.path.splitext(tmp_path)[1].lower()
+                final_filename = f"{prefix}_{i:0{padding}d}{ext}"
+                final_path = os.path.join(output_dir, final_filename)
+                os.rename(tmp_path, final_path)
+                
+                if i % 10 == 0 or i == total_files:
+                    progress_callback(i, total_files, f"Finalizzazione: {i}/{total_files}")
