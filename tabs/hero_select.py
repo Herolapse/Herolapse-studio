@@ -25,6 +25,7 @@ class HeroSelect(ctk.CTkFrame):
         self.source_dir = ""
         self.dest_dir = ""
         self.thumbnails_labels = []  # Per gestire il cleanup della memoria
+        self.is_cancelled = False
 
         # Stato Paginazione
         self.current_page = 0
@@ -172,6 +173,15 @@ class HeroSelect(ctk.CTkFrame):
         self.right_panel = ctk.CTkFrame(self)
         self.right_panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
+        self.btn_cancel = ctk.CTkButton(
+            self.right_panel,
+            text="Annulla",
+            command=self.cancel_operation,
+            fg_color="red",
+            state="normal"
+        )
+        # Hidden initially
+
         self.scroll_frame = ctk.CTkScrollableFrame(self.right_panel)
         self.scroll_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
@@ -207,22 +217,36 @@ class HeroSelect(ctk.CTkFrame):
         )
         self.btn_next.pack(side="right", padx=20)
 
+        # Container per i bottoni di azione (Apply, Copy, Cancel)
+        self.action_frame = ctk.CTkFrame(self.right_panel, fg_color="transparent")
+        self.action_frame.pack(side="bottom", fill="x", padx=20, pady=10)
+
+        self.btn_apply = ctk.CTkButton(
+            self.action_frame,
+            text="Applica Filtri",
+            command=self.apply_filters,
+            fg_color="green",
+            height=40
+        )
+        self.btn_apply.pack(side="top", pady=5, fill="x")
+
         self.btn_copy = ctk.CTkButton(
-            self.right_panel,
+            self.action_frame,
             text="Copia Foto Filtrate",
             command=self.start_copy,
             state="disabled",
             height=50,
         )
-        self.btn_copy.pack(side="bottom", pady=10, fill="x", padx=20)
+        self.btn_copy.pack(side="top", pady=5, fill="x")
 
-        self.btn_apply = ctk.CTkButton(
-            self.right_panel,
-            text="Applica Filtri",
-            command=self.apply_filters,
-            fg_color="green",
+        self.btn_cancel = ctk.CTkButton(
+            self.action_frame,
+            text="Annulla",
+            command=self.cancel_operation,
+            fg_color="red",
+            height=50
         )
-        self.btn_apply.pack(side="bottom", pady=5, fill="x", padx=20)
+        # Hidden initially
 
         self.lbl_count = ctk.CTkLabel(
             self.right_panel,
@@ -231,6 +255,10 @@ class HeroSelect(ctk.CTkFrame):
         )
         self.lbl_count.pack(side="bottom", pady=5)
 
+    def cancel_operation(self):
+        self.is_cancelled = True
+        self.btn_cancel.configure(state="disabled")
+        self.progress_label.configure(text="Annullamento in corso...")
 
     def select_source(self):
         path = filedialog.askdirectory()
@@ -238,6 +266,10 @@ class HeroSelect(ctk.CTkFrame):
             self.source_dir = path
             self.lbl_source.configure(text=path)
             self.logic = HeroSelectLogic(path)
+            self.is_cancelled = False
+            # Swap buttons in action_frame: hide copy, show cancel below apply
+            self.btn_copy.pack_forget()
+            self.btn_cancel.pack(side="top", pady=5, fill="x")
             threading.Thread(target=self._scan_thread, daemon=True).start()
 
     def select_dest(self):
@@ -257,12 +289,22 @@ class HeroSelect(ctk.CTkFrame):
                 ),
             )
 
-        total = self.logic.scan_directory(update_ui)
+        total = self.logic.scan_directory(update_ui, stop_check=lambda: self.is_cancelled)
         min_ev, max_ev = self.logic.get_ev_range()
         min_date, max_date = self.logic.get_date_range()
         avg_sharp, threshold_sharp = self.logic.get_sharpness_stats()
 
         def finalize_ui():
+            # Restore original buttons: Apply stays on top, Copy below it
+            self.btn_cancel.pack_forget()
+            self.btn_copy.pack(side="top", pady=5, fill="x")
+            
+            if self.is_cancelled:
+                messagebox.showwarning("Annullato", "Operazione annullata dall'utente.")
+                self.progress_label.configure(text="Annullato")
+            else:
+                self.progress_label.configure(text="Scansione completata")
+                self.btn_copy.configure(state="normal")
             self.lbl_count.configure(text=f"Foto filtrate: 0 / {total}")
             if min_ev is not None:
                 self.lbl_ev_detected.configure(
@@ -447,7 +489,9 @@ class HeroSelect(ctk.CTkFrame):
     def start_copy(self):
         if not self.dest_dir:
             return
-        self.btn_copy.configure(state="disabled")
+        self.btn_copy.pack_forget()
+        self.btn_cancel.pack(side="top", pady=5, fill="x")
+        self.is_cancelled = False
         threading.Thread(target=self._copy_thread, daemon=True).start()
 
     def _copy_thread(self):
@@ -488,16 +532,21 @@ class HeroSelect(ctk.CTkFrame):
                 limit=self.total_filtered,
                 offset=0
             )
-            
+
             filenames = [x[0] for x in all_filtered]
-            self.logic.copy_files(filenames, self.dest_dir, update_ui)
-            self.after(0, lambda: messagebox.showinfo("Fine", "Copia completata"))
+            self.logic.copy_files(filenames, self.dest_dir, update_ui, stop_check=lambda: self.is_cancelled)
+
+            if self.is_cancelled:
+                self.after(0, lambda: messagebox.showwarning("Annullato", "Copia annullata."))
+            else:
+                self.after(0, lambda: messagebox.showinfo("Fine", "Copia completata"))
         except Exception as e:
             self.after(0, lambda: messagebox.showerror("Errore", f"Errore durante la copia: {e}"))
         finally:
+            self.after(0, lambda: self.btn_cancel.pack_forget())
+            self.after(0, lambda: self.btn_copy.pack(side="top", pady=5, fill="x"))
             self.after(0, lambda: self.btn_copy.configure(state="normal"))
-
-
+            self.after(0, lambda: self.progress_label.configure(text="Pronto"))
 class HeroSelectLogic:
     DB_NAME = "herolapse_studio_cache.db"
     IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tiff", ".bmp"}
@@ -630,7 +679,7 @@ class HeroSelectLogic:
             pass
         return tuple(res)
 
-    def scan_directory(self, progress_callback: Callable[[int, int], None]) -> int:
+    def scan_directory(self, progress_callback: Callable[[int, int], None], stop_check: Callable[[], bool] = lambda: False) -> int:
         all_files = [
             f
             for f in os.listdir(self.source_dir)
@@ -657,8 +706,17 @@ class HeroSelectLogic:
         processed_count = 0
 
         with ThreadPoolExecutor(max_workers=max(1, os.cpu_count() - 1)) as executor:
-            results = executor.map(self.get_full_exif_data, to_scan)
-            for data in results:
+            # Sottomettiamo i task singolarmente per poterli cancellare o controllare il progresso più finemente
+            futures = [executor.submit(self.get_full_exif_data, f) for f in to_scan]
+            
+            for future in futures:
+                if stop_check():
+                    # Tentiamo di cancellare i future rimanenti
+                    for f in futures:
+                        f.cancel()
+                    break
+                
+                data = future.result()
                 batch_data.append(data)
                 processed_count += 1
                 if (
@@ -833,11 +891,14 @@ class HeroSelectLogic:
         files_to_copy: List[str],
         dest_dir: str,
         progress_callback: Callable[[int, int], None],
+        stop_check: Callable[[], bool] = lambda: False,
     ):
         if not os.path.exists(dest_dir):
             os.makedirs(dest_dir)
         total = len(files_to_copy)
         for i, filename in enumerate(files_to_copy):
+            if stop_check():
+                break
             src = os.path.join(self.source_dir, filename)
             dst = os.path.join(dest_dir, filename)
             if not (
@@ -846,3 +907,4 @@ class HeroSelectLogic:
                 shutil.copy2(src, dst)
             if i % 10 == 0 or i == total - 1:
                 progress_callback(i + 1, total)
+

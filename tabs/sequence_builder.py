@@ -16,7 +16,12 @@ class SequenceBuilder(ctk.CTkFrame):
         self.logic = SequenceBuilderLogic()
         self.input_dir = ""
         self.output_dir = ""
+        self.is_cancelled = False
         self._setup_ui()
+
+    def cancel_operation(self):
+        self.is_cancelled = True
+        self.status_label.configure(text="Annullamento in corso...")
 
     def _setup_ui(self):
         self.grid_columnconfigure(0, weight=1)
@@ -72,15 +77,18 @@ class SequenceBuilder(ctk.CTkFrame):
         self.status_label = ctk.CTkLabel(
             self, text="Pronto per l'esportazione", font=ctk.CTkFont(size=14)
         )
-        self.status_label.pack(pady=(40, 5))
+        self.status_label.pack(pady=(20, 5))
 
         self.progress_bar = ctk.CTkProgressBar(self, width=500)
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=10)
 
-        # Pulsante Avvia
+        # Pulsanti Controllo
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(pady=20)
+
         self.btn_start = ctk.CTkButton(
-            self,
+            btn_frame,
             text="AVVIA ESPORTAZIONE PREMIERE",
             height=60,
             command=self.start_export,
@@ -88,7 +96,18 @@ class SequenceBuilder(ctk.CTkFrame):
             hover_color="darkgreen",
             font=ctk.CTkFont(size=16, weight="bold"),
         )
-        self.btn_start.pack(pady=40)
+        self.btn_start.pack()
+
+        self.btn_cancel = ctk.CTkButton(
+            btn_frame,
+            text="ANNULLA",
+            height=60,
+            command=self.cancel_operation,
+            fg_color="red",
+            state="normal",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        )
+        # Hidden initially
 
     def select_input(self):
         path = filedialog.askdirectory()
@@ -117,7 +136,9 @@ class SequenceBuilder(ctk.CTkFrame):
             )
             return
 
-        self.btn_start.configure(state="disabled")
+        self.is_cancelled = False
+        self.btn_start.pack_forget()
+        self.btn_cancel.pack()
         threading.Thread(
             target=self._export_thread, args=(prefix,), daemon=True
         ).start()
@@ -130,15 +151,20 @@ class SequenceBuilder(ctk.CTkFrame):
 
         try:
             self.logic.process_renaming(
-                self.input_dir, self.output_dir, prefix, update_ui
+                self.input_dir, self.output_dir, prefix, update_ui, stop_check=lambda: self.is_cancelled
             )
-            self.after(
-                0,
-                lambda: messagebox.showinfo(
-                    "Esportazione Completata",
-                    "Le immagini sono state ordinate e rinominate con successo!",
-                ),
-            )
+            if self.is_cancelled:
+                self.after(0, lambda: messagebox.showwarning("Annullato", "Operazione annullata."))
+                self.after(0, lambda: self.status_label.configure(text="Annullato"))
+            else:
+                self.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Esportazione Completata",
+                        "Le immagini sono state ordinate e rinominate con successo!",
+                    ),
+                )
+                self.after(0, lambda: self.status_label.configure(text="Completato"))
         except Exception as e:
             self.after(
                 0,
@@ -147,6 +173,8 @@ class SequenceBuilder(ctk.CTkFrame):
                 ),
             )
         finally:
+            self.after(0, lambda: self.btn_cancel.pack_forget())
+            self.after(0, lambda: self.btn_start.pack())
             self.after(0, lambda: self.btn_start.configure(state="normal"))
             self.after(
                 0, lambda: self.status_label.configure(text="Pronto per l'esportazione")
@@ -182,6 +210,7 @@ class SequenceBuilderLogic:
         output_dir: str,
         prefix: str,
         progress_callback: Callable[[int, int, str], None],
+        stop_check: Callable[[], bool] = lambda: False,
     ):
         """Scansiona, ordina e copia le immagini rinominandole in modo sequenziale."""
         if not os.path.exists(output_dir):
@@ -200,6 +229,8 @@ class SequenceBuilderLogic:
 
         image_data = []
         for i, filename in enumerate(files):
+            if stop_check():
+                return
             filepath = os.path.join(input_dir, filename)
             capture_date = self.get_capture_date(filepath)
             image_data.append((filepath, capture_date))
@@ -219,6 +250,8 @@ class SequenceBuilderLogic:
 
         # 4. Copia e Rinominazione
         for i, (src_path, _) in enumerate(image_data, start=1):
+            if stop_check():
+                return
             ext = os.path.splitext(src_path)[1].lower()
             # Esempio: timelapse_0001.jpg
             new_filename = f"{prefix}_{i:0{padding}d}{ext}"

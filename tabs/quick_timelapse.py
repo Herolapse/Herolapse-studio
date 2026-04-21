@@ -98,9 +98,13 @@ class QuickTimelapse(HeroSelect):
         self.page_frame.pack_forget()
         self.lbl_count.pack_forget()
         self.btn_apply.pack_forget()
+        self.btn_cancel.pack_forget() # Lo riposizioniamo
+
+        btn_frame = ctk.CTkFrame(self.right_panel, fg_color="transparent")
+        btn_frame.pack(expand=True)
 
         self.btn_generate_video = ctk.CTkButton(
-            self.right_panel,
+            btn_frame,
             text="Genera Timelapse Video",
             command=self.start_video_generation,
             fg_color="orange",
@@ -109,7 +113,10 @@ class QuickTimelapse(HeroSelect):
             state="disabled",
             height=60
         )
-        self.btn_generate_video.pack(expand=True, padx=40)
+        self.btn_generate_video.pack()
+
+        self.btn_cancel.configure(text="ANNULLA", height=60, font=ctk.CTkFont(weight="bold"), state="normal")
+        # Hidden initially
 
     def select_video_dest(self):
         path = filedialog.asksaveasfilename(
@@ -140,7 +147,9 @@ class QuickTimelapse(HeroSelect):
             messagebox.showerror("Errore", "Dati non validi (Durata e FPS devono essere numeri).")
             return
 
-        self.btn_generate_video.configure(state="disabled")
+        self.is_cancelled = False
+        self.btn_generate_video.pack_forget()
+        self.btn_cancel.pack()
         threading.Thread(target=self._video_generation_thread, args=(duration, fps), daemon=True).start()
 
     def _video_generation_thread(self, duration: float, fps: float):
@@ -178,6 +187,8 @@ class QuickTimelapse(HeroSelect):
             prev_frame_fade = None
             count = 0
             for idx in sampled_indices:
+                if self.is_cancelled:
+                    break
                 img = cv2.imread(os.path.join(self.source_dir, all_files[idx]))
                 if img is None: continue
                 img = cv2.resize(img, (1920, 1080), interpolation=cv2.INTER_LANCZOS4)
@@ -195,12 +206,20 @@ class QuickTimelapse(HeroSelect):
                 prev_frame_fade = img.copy()
                 
             out.release()
-            time.sleep(0.5) # Sicurezza per il lock del file su Windows
             
-            self.after(0, lambda: messagebox.showinfo("Successo", "Video generato correttamente!"))
+            if self.is_cancelled:
+                if os.path.exists(self.video_dest_path):
+                    try: os.remove(self.video_dest_path)
+                    except: pass
+                self.after(0, lambda: messagebox.showwarning("Annullato", "Generazione video annullata."))
+            else:
+                time.sleep(0.5) # Sicurezza per il lock del file su Windows
+                self.after(0, lambda: messagebox.showinfo("Successo", "Video generato correttamente!"))
         except Exception as e:
             self.after(0, lambda err=e: messagebox.showerror("Errore", f"Errore durante il rendering: {err}"))
         finally:
+            self.after(0, lambda: self.btn_cancel.pack_forget())
+            self.after(0, lambda: self.btn_generate_video.pack())
             self.after(0, lambda: self.btn_generate_video.configure(state="normal"))
             self.after(0, lambda: self.progress_label.configure(text="Pronto"))
             self.after(0, lambda: self.progress_bar.set(0))

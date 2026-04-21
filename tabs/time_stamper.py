@@ -18,6 +18,7 @@ class TimeStamper(ctk.CTkFrame):
         self.logic = TimeStamperLogic()
         self.input_dir = ""
         self.output_dir = ""
+        self.is_cancelled = False
         self._setup_ui()
 
     def _setup_ui(self):
@@ -50,14 +51,32 @@ class TimeStamper(ctk.CTkFrame):
         self.progress_bar.set(0)
         self.progress_bar.pack(pady=10)
 
+        # Action Button Container
+        self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.action_frame.pack(pady=30)
+
         self.btn_start = ctk.CTkButton(
-            self,
+            self.action_frame,
             text="AVVIA WATERMARK",
             height=50,
             command=self.start_processing,
             fg_color="blue",
         )
-        self.btn_start.pack(pady=30)
+        self.btn_start.pack()
+
+        self.btn_cancel = ctk.CTkButton(
+            self.action_frame,
+            text="ANNULLA",
+            height=50,
+            command=self.cancel_operation,
+            fg_color="red",
+            state="normal"
+        )
+        # Hidden initially
+
+    def cancel_operation(self):
+        self.is_cancelled = True
+        self.status_label.configure(text="Annullamento in corso...")
 
     def select_input(self):
         path = filedialog.askdirectory()
@@ -76,7 +95,9 @@ class TimeStamper(ctk.CTkFrame):
             messagebox.showwarning("Mancano Dati", "Seleziona entrambe le cartelle.")
             return
 
-        self.btn_start.configure(state="disabled")
+        self.is_cancelled = False
+        self.btn_start.pack_forget()
+        self.btn_cancel.pack()
         # Avvio in thread separato per non bloccare la UI
         threading.Thread(target=self._work_thread, daemon=True).start()
 
@@ -88,14 +109,22 @@ class TimeStamper(ctk.CTkFrame):
                 0, lambda: self.status_label.configure(text=f"{msg} ({curr}/{total})")
             )
 
-        self.logic.process_directory(self.input_dir, self.output_dir, update_progress)
+        self.logic.process_directory(self.input_dir, self.output_dir, update_progress, stop_check=lambda: self.is_cancelled)
 
-        self.after(
-            0,
-            lambda: messagebox.showinfo(
-                "Completato", "Tutte le foto sono state processate!"
-            ),
-        )
+        if self.is_cancelled:
+            self.after(0, lambda: messagebox.showwarning("Annullato", "Operazione annullata."))
+            self.after(0, lambda: self.status_label.configure(text="Annullato"))
+        else:
+            self.after(
+                0,
+                lambda: messagebox.showinfo(
+                    "Completato", "Tutte le foto sono state processate!"
+                ),
+            )
+            self.after(0, lambda: self.status_label.configure(text="Completato"))
+            
+        self.after(0, lambda: self.btn_cancel.pack_forget())
+        self.after(0, lambda: self.btn_start.pack())
         self.after(0, lambda: self.btn_start.configure(state="normal"))
 
 
@@ -132,6 +161,7 @@ class TimeStamperLogic:
         input_dir: str,
         output_dir: str,
         progress_callback: Callable[[int, int, str], None],
+        stop_check: Callable[[], bool] = lambda: False,
     ):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -140,6 +170,8 @@ class TimeStamperLogic:
         ]
         total = len(files)
         for i, filename in enumerate(files):
+            if stop_check():
+                break
             input_path = os.path.join(input_dir, filename)
             output_path = os.path.join(output_dir, filename)
             success = self.add_date_label(input_path, output_path)
